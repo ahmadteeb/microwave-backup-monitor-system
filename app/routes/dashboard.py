@@ -1,0 +1,86 @@
+from flask import Blueprint, jsonify
+from app.models import db, Link, PingResult, MetricSnapshot
+from sqlalchemy import func
+from datetime import datetime, timedelta
+
+dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/api/dashboard')
+
+@dashboard_bp.route('/kpi', methods=['GET'])
+def get_kpis():
+    total_links = Link.query.count()
+    
+    # In a production app with a large DB, subqueries or denormalized status columns
+    # are better. For this NOC dashboard v1, we can iterate or use a subquery.
+    # We want the latest ping for each link.
+    
+    # The simplest logic given the schema is to fetch all latest pings per link
+    # We can do this efficiently using a window function or distinct in Postgres,
+    # but since we are on SQLite, we can just do a group by max timestamp or query.
+    
+    # Alternatively, since N=142, we can just do it in python to keep it simple:
+    links = Link.query.all()
+    mw_reachable = 0
+    high_utilization = 0
+    
+    for link in links:
+        latest_ping = link.ping_results.order_by(PingResult.timestamp.desc()).first()
+        if latest_ping and latest_ping.reachable:
+            mw_reachable += 1
+            
+        latest_metric = link.metrics.order_by(MetricSnapshot.timestamp.desc()).first()
+        if latest_metric and latest_metric.mw_util_pct and latest_metric.mw_util_pct > 70:
+            high_utilization += 1
+
+    mw_unreachable = total_links - mw_reachable
+    
+    return jsonify({
+        "total_links": total_links,
+        "mw_reachable": mw_reachable,
+        "mw_unreachable": mw_unreachable,
+        "high_utilization": high_utilization,
+        "last_updated": datetime.utcnow().isoformat() + "Z"
+    }), 200
+
+@dashboard_bp.route('/stability', methods=['GET'])
+def get_stability():
+    now = datetime.utcnow()
+    twenty_four_hours_ago = now - timedelta(hours=24)
+    
+    # We want success rate per hour.
+    # Grouping by hour in SQLite is string manipulation.
+    # Since we need a portable solution, we can fetch the last 24h of pings and bucket in python.
+    pings = PingResult.query.filter(PingResult.timestamp >= twenty_four_hours_ago).all()
+    
+    # Initialize 24 buckets
+    buckets = {}
+    for i in range(24):
+        # hour start
+        bucket_time = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=23-i)
+        buckets[bucket_time] = {"total_pings": 0, "successful": 0}
+        
+    for p in pings:
+        # Round timestamp down to the nearest hour
+        b_time = p.timestamp.replace(minute=0, second=0, microsecond=0)
+        if b_time in buckets:
+            buckets[b_time]["total_pings"] += 1
+            if p.reachable:
+                buckets[b_time]["successful"] += 1
+
+    hours = []
+    # Ensure they are sorted
+    for b_time in sorted(buckets.keys()):
+        stats = buckets[b_time]
+        total = stats["total_pings"]
+        successful = stats["successful"]
+        failed = total - successful
+        rate = (successful / total * 100.0) if total > 0 else 0.0
+        
+        hours.append({
+            "hour": b_time.isoformat() + "Z",
+            "total_pings": total,
+            "successful": successful,
+            "failed": failed,
+            "success_rate": round(rate, 1)
+        })
+
+    return jsonify({"hours": hours}), 200

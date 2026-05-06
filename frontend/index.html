@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MW Backup Link Monitor System</title>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <!-- Optional: Use FontAwesome CDN for icons since kit is required. Using reliable cdnjs -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <header class="topbar">
+    <div style="display: flex; align-items: center;">
+      <div class="sys-name text-teal">LINK_MONITOR_NOC</div>
+      <div class="sys-health" id="sys-health-badge">SYSTEM HEALTHY</div>
+    </div>
+    <div class="topbar-right">
+      <div class="text-mono">UPTIME: <span id="uptime-val" class="text-teal">99.99%</span></div>
+      <div class="text-mono">NEXT_CHECK: <span id="next-check-val">00:00</span></div>
+      <div class="topbar-icons">
+        <i class="fa-regular fa-bell"></i>
+        <i class="fa-regular fa-envelope"></i>
+        <i class="fa-solid fa-gear"></i>
+        <i class="fa-solid fa-circle-user"></i>
+      </div>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <input type="text" id="search-input" class="sidebar-search" placeholder="&#xf002;  SITE/ID SEARCH..." style="font-family: var(--font-body), 'Font Awesome 6 Free'; font-weight: 900;">
+    </div>
+    
+    <div class="sidebar-section">
+      <div class="filter-label">STATUS_FILTER</div>
+      <select id="status-filter" class="filter-select">
+        <option value="ALL_OPERATIONAL">ALL_OPERATIONAL</option>
+        <option value="UP">UP</option>
+        <option value="DOWN">DOWN</option>
+        <option value="TIMEOUT">TIMEOUT</option>
+        <option value="HIGH">HIGH</option>
+      </select>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="filter-label">LEG_REGION</div>
+      <select id="leg-filter" class="filter-select">
+        <option value="ALL_REGIONS">ALL_REGIONS</option>
+      </select>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="filter-label" style="margin-bottom: 12px;">NAVIGATION</div>
+      <ul class="nav-menu">
+        <li class="nav-item active"><i class="fa-solid fa-border-all"></i> Dashboard</li>
+        <li class="nav-item"><i class="fa-solid fa-diagram-project"></i> Link Clusters</li>
+        <li class="nav-item"><i class="fa-solid fa-network-wired"></i> Topology</li>
+        <li class="nav-item"><i class="fa-solid fa-chart-line"></i> Traffic Analysis</li>
+        <li class="nav-item"><i class="fa-solid fa-list-ul"></i> System Logs</li>
+      </ul>
+    </div>
+
+    <div class="ping-log-container">
+      <div class="sidebar-section" style="margin-bottom: 8px;">
+        <div class="filter-label" style="display: flex; justify-content: space-between;">
+          PING_ACTIVITY_LOG <span style="color: var(--accent-teal);">●</span>
+        </div>
+      </div>
+      <div class="ping-log-scroll" id="ping-log-list">
+        <!-- JS inserts entries here -->
+      </div>
+    </div>
+
+    <button class="btn-add-link" id="btn-add-sidebar">+ ADD_LINK</button>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    
+    <!-- KPI Row -->
+    <div class="kpi-row">
+      <div class="kpi-card teal">
+        <div class="kpi-label">TOTAL LINKS</div>
+        <div class="kpi-value" id="kpi-total">0</div>
+        <i class="fa-solid fa-layer-group kpi-icon"></i>
+      </div>
+      <div class="kpi-card green">
+        <div class="kpi-label">MW REACHABLE</div>
+        <div class="kpi-value text-teal" id="kpi-reachable" style="color: var(--status-up);">0</div>
+        <i class="fa-solid fa-link kpi-icon"></i>
+      </div>
+      <div class="kpi-card red">
+        <div class="kpi-label">MW UNREACHABLE</div>
+        <div class="kpi-value" id="kpi-unreachable" style="color: var(--status-down);">0</div>
+        <i class="fa-solid fa-link-slash kpi-icon"></i>
+      </div>
+      <div class="kpi-card amber">
+        <div class="kpi-label">HIGH UTILIZATION</div>
+        <div class="kpi-value" id="kpi-high" style="color: var(--status-warning);">0</div>
+        <i class="fa-solid fa-triangle-exclamation kpi-icon"></i>
+      </div>
+    </div>
+
+    <!-- Table Section -->
+    <div class="table-container">
+      <div class="table-header">
+        <div class="table-title">
+          ACTIVE LINK INVENTORY <span class="table-count-badge" id="table-count">0 TOTAL</span>
+        </div>
+        <div class="table-actions">
+          <i class="fa-solid fa-filter"></i>
+          <i class="fa-solid fa-download"></i>
+        </div>
+      </div>
+      
+      <table>
+        <thead>
+          <tr>
+            <th>LINK ID</th>
+            <th>LEG</th>
+            <th>FIBER UTIL</th>
+            <th>MW UTIL</th>
+            <th>STATUS</th>
+            <th>LATENCY</th>
+            <th style="text-align: right;">ACTIONS</th>
+          </tr>
+        </thead>
+        <tbody id="link-table-body">
+          <!-- JS inserts rows here -->
+        </tbody>
+      </table>
+
+      <div class="table-footer">
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background: var(--bar-optimal);"></div> OPTIMAL &lt; 70%</div>
+          <div class="legend-item"><div class="legend-dot" style="background: var(--bar-warning);"></div> WARNING 70-90%</div>
+          <div class="legend-item"><div class="legend-dot" style="background: var(--bar-critical);"></div> CRITICAL &gt; 90%</div>
+        </div>
+        <div class="pagination">
+          <span id="page-info">PAGE 1 OF 1</span>
+          <button class="page-btn" id="btn-prev-page"><i class="fa-solid fa-chevron-left"></i></button>
+          <button class="page-btn" id="btn-next-page"><i class="fa-solid fa-chevron-right"></i></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Panels -->
+    <div class="bottom-panels">
+      <div class="panel">
+        <div class="panel-title">NETWORK STABILITY TREND (24H)</div>
+        <div class="chart-container">
+          <canvas id="stabilityChart"></canvas>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">TOPOLOGY MONITOR</div>
+        <div class="topology-placeholder">
+          <!-- Placeholder static graphic effect via CSS -->
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Modal -->
+  <div class="modal-overlay" id="link-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-sliders text-teal"></i> CONFIGURE_MICROWAVE_LINK</div>
+        <button class="modal-close" id="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-id">
+        <div class="form-group">
+          <label class="form-label">LINK_ID</label>
+          <input type="text" id="modal-link-id" class="form-control text-mono">
+        </div>
+        <div class="form-group">
+          <label class="form-label">LEG_NAME</label>
+          <input type="text" id="modal-leg-name" class="form-control text-mono">
+        </div>
+        <div class="form-group">
+          <label class="form-label">SITE_A_NODE</label>
+          <input type="text" id="modal-site-a" class="form-control text-mono" placeholder="e.g. ALPHA_BASE">
+        </div>
+        <div class="form-group">
+          <label class="form-label">SITE_B_NODE</label>
+          <input type="text" id="modal-site-b" class="form-control text-mono" placeholder="e.g. DELTA_REPEATER">
+        </div>
+        <div class="form-group full">
+          <label class="form-label required" style="color: var(--accent-teal);">MW_IP_ADDRESS</label>
+          <div style="position: relative;">
+            <input type="text" id="modal-mw-ip" class="form-control text-mono" style="width: 100%; border-color: rgba(255,82,82,0);" placeholder="000.000.000.000">
+            <i class="fa-solid fa-circle-exclamation hidden" id="ip-error-icon" style="position: absolute; right: 12px; top: 12px; color: var(--status-down);"></i>
+          </div>
+          <div class="form-helper" id="modal-ip-helper">Required field: Provide a valid IPv4 address for link telemetry.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="auth-stamp"><i class="fa-regular fa-circle-user"></i> SYSTEM_AUTH: VALIDATED_USER_04</div>
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-cancel-modal">CANCEL</button>
+          <button class="btn-primary" id="btn-save-modal"><i class="fa-regular fa-floppy-disk"></i> SAVE_LINK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FAB -->
+  <div class="fab" id="fab-add-link">
+    <i class="fa-solid fa-plus"></i>
+  </div>
+
+  <script src="/js/dashboard.js" defer></script>
+  <script src="/js/table.js" defer></script>
+  <script src="/js/pinglog.js" defer></script>
+  <script src="/js/charts.js" defer></script>
+  <script src="/js/modal.js" defer></script>
+</body>
+</html>
