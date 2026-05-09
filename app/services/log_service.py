@@ -6,8 +6,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+import json
+
 def write_log(category, event, actor, target=None, detail=None, ip_address=None):
     try:
+        if isinstance(detail, (dict, list)):
+            detail = json.dumps(detail)
+
         log_entry = SystemLog(
             timestamp=datetime.utcnow(),
             category=category,

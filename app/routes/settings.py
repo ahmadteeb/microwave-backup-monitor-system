@@ -22,8 +22,9 @@ def _mask_password(value):
 
 def _build_smtp_response(config):
     if not config:
-        return None
+        return {'enabled': False}
     return {
+        'enabled': True,
         'host': config.host,
         'port': config.port,
         'username': config.username,
@@ -64,6 +65,15 @@ def get_smtp():
 def update_smtp():
     data = request.get_json() or {}
     config = SmtpConfig.query.get(1)
+    enabled = bool(data.get('enabled', True))
+
+    if not enabled:
+        if config:
+            db.session.delete(config)
+            db.session.commit()
+            write_log('config', 'smtp_disabled', session.get('username', 'system'), 'smtp', {})
+        return jsonify({'result': 'smtp disabled'}), 200
+
     if not config:
         config = SmtpConfig(id=1)
         db.session.add(config)

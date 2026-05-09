@@ -362,23 +362,27 @@ tr:hover { background: rgba(255,255,255,0.02); }
   align-items: center;
   justify-content: center;
   padding: 20px;
+  overflow: auto;
 }
 
 .auth-container {
   width: 100%;
-  max-width: 500px;
+  max-width: 580px;
 }
 
 .auth-card {
+  display: flex;
+  flex-direction: column;
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
   box-shadow: 0 20px 40px rgba(0,0,0,0.4);
   border: 1px solid var(--border-color);
   overflow: hidden;
+  max-height: calc(100vh - 40px);
 }
 
 .setup-card {
-  max-width: 600px;
+  max-width: 680px;
 }
 
 .auth-header {
@@ -410,6 +414,10 @@ tr:hover { background: rgba(255,255,255,0.02); }
 
 .auth-form {
   padding: 30px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
 }
 
 .auth-form .form-group {
@@ -586,6 +594,29 @@ tr:hover { background: rgba(255,255,255,0.02); }
 .setup-complete p {
   color: var(--text-secondary);
   line-height: 1.6;
+}
+
+.smtp-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.smtp-fields .form-group {
+  margin-bottom: 16px;
+}
+
+.db-field {
+  display: grid;
+  gap: 20px;
+}
+
+.db-field.sql-field {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.db-field.sql-field .form-group {
+  margin-bottom: 16px;
 }
 
 .setup-actions {

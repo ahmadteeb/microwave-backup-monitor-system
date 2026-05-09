@@ -23,10 +23,10 @@ async function loadSettings() {
     ]);
 
     currentSettings = {
-      app: appSettings.settings,
-      smtp: smtpSettings.settings,
-      jump: jumpSettings.settings,
-      notifications: notificationSettings.subscriptions
+      app: appSettings.app || {},
+      smtp: smtpSettings.smtp || {},
+      jump: jumpSettings.jumpserver || {},
+      notifications: notificationSettings.subscriptions || {}
     };
 
     populateForm();
@@ -43,12 +43,14 @@ function populateForm() {
   document.getElementById('session-timeout').value = currentSettings.app.session_timeout_minutes || 480;
 
   // SMTP settings
+  document.getElementById('smtp-enabled').checked = currentSettings.smtp.enabled || false;
   document.getElementById('smtp-server').value = currentSettings.smtp.server || '';
   document.getElementById('smtp-port').value = currentSettings.smtp.port || 587;
   document.getElementById('smtp-username').value = currentSettings.smtp.username || '';
   document.getElementById('smtp-password').value = currentSettings.smtp.password || '';
   document.getElementById('smtp-from-email').value = currentSettings.smtp.from_email || '';
   document.getElementById('smtp-use-tls').value = currentSettings.smtp.use_tls ? 'true' : 'false';
+  updateSmtpFieldVisibility();
 
   // Jump server settings
   document.getElementById('jump-host').value = currentSettings.jump.host || '';
@@ -65,12 +67,14 @@ function populateForm() {
 
 // Save settings
 async function saveSettings() {
+  const smtpEnabled = document.getElementById('smtp-enabled').checked;
   const settingsData = {
     app: {
       ping_interval_seconds: parseInt(document.getElementById('ping-interval').value),
       session_timeout_minutes: parseInt(document.getElementById('session-timeout').value)
     },
     smtp: {
+      enabled: smtpEnabled,
       server: document.getElementById('smtp-server').value.trim(),
       port: parseInt(document.getElementById('smtp-port').value),
       username: document.getElementById('smtp-username').value.trim(),
@@ -124,8 +128,21 @@ async function saveSettings() {
   }
 }
 
+// Update visibility of SMTP fields based on enabled checkbox
+function updateSmtpFieldVisibility() {
+  const enabled = document.getElementById('smtp-enabled').checked;
+  document.querySelectorAll('.smtp-field').forEach(field => {
+    field.classList.toggle('hidden', !enabled);
+  });
+}
+
 // Test SMTP connection
 async function testSmtp() {
+  if (!document.getElementById('smtp-enabled').checked) {
+    alert('SMTP is disabled. Enable it before testing.');
+    return;
+  }
+
   const smtpData = {
     server: document.getElementById('smtp-server').value.trim(),
     port: parseInt(document.getElementById('smtp-port').value),
@@ -201,6 +218,7 @@ btnCancelSettings.addEventListener('click', hideSettingsModal);
 btnSaveSettings.addEventListener('click', saveSettings);
 btnTestSmtp.addEventListener('click', testSmtp);
 btnTestJumpserver.addEventListener('click', testJumpserver);
+document.getElementById('smtp-enabled').addEventListener('change', updateSmtpFieldVisibility);
 
 // Tab switching
 tabButtons.forEach(btn => {

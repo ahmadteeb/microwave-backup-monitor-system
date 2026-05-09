@@ -25,23 +25,29 @@ def _derive_key_sha256(secret_key: str) -> bytes:
     return base64.urlsafe_b64encode(sha256(secret_key.encode('utf-8')).digest())
 
 
-def encrypt(plaintext: str) -> str:
-    secret = current_app.config['SECRET_KEY']
-    key = _derive_key_pbkdf2(secret)
+def encrypt_with_key(plaintext: str, secret_key: str) -> str:
+    key = _derive_key_pbkdf2(secret_key)
     f = Fernet(key)
     return f.encrypt(plaintext.encode('utf-8')).decode('utf-8')
 
-
-def decrypt(ciphertext: str) -> str:
+def encrypt(plaintext: str) -> str:
     secret = current_app.config['SECRET_KEY']
-    key = _derive_key_pbkdf2(secret)
+    return encrypt_with_key(plaintext, secret)
+
+
+def decrypt_with_key(ciphertext: str, secret_key: str) -> str:
+    key = _derive_key_pbkdf2(secret_key)
     f = Fernet(key)
     try:
         return f.decrypt(ciphertext.encode('utf-8')).decode('utf-8')
     except InvalidToken:
-        fallback_key = _derive_key_sha256(secret)
+        fallback_key = _derive_key_sha256(secret_key)
         fallback_fernet = Fernet(fallback_key)
         try:
             return fallback_fernet.decrypt(ciphertext.encode('utf-8')).decode('utf-8')
         except InvalidToken:
             raise
+
+def decrypt(ciphertext: str) -> str:
+    secret = current_app.config['SECRET_KEY']
+    return decrypt_with_key(ciphertext, secret)

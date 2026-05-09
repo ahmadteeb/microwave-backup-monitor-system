@@ -65,8 +65,6 @@ def create_app(config_class=Config):
         allowed_prefixes = (
             '/setup',
             '/api/setup',
-            '/login',
-            '/api/auth',
             '/css/',
             '/js/',
             '/frontend/',
@@ -78,12 +76,19 @@ def create_app(config_class=Config):
     def global_before_request():
         path = request.path
         setup_state = SetupState.query.get(1)
-        if not setup_state or not setup_state.is_complete:
+        
+        is_setup_complete = setup_state and setup_state.is_complete
+        
+        if not is_setup_complete:
             if not is_setup_allowed(path):
+                if path.startswith('/api/'):
+                    return jsonify({'error': 'Setup required'}), 403
                 return redirect('/setup')
             return
         else:
-            if path == '/setup':
+            if path == '/setup' or path.startswith('/api/setup'):
+                if path.startswith('/api/'):
+                    return jsonify({'error': 'Setup already completed'}), 403
                 return redirect('/login')
 
         user_id = session.get('user_id')

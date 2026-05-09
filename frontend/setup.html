@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,7 @@
   <link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
+
 <body class="auth-page">
 
   <div class="auth-container">
@@ -23,25 +25,84 @@
       <div class="setup-progress">
         <div class="progress-step active" data-step="1">
           <span class="step-number">1</span>
-          <span class="step-label">ADMIN USER</span>
+          <span class="step-label">DB CONFIG</span>
         </div>
         <div class="progress-step" data-step="2">
           <span class="step-number">2</span>
-          <span class="step-label">SMTP CONFIG</span>
+          <span class="step-label">ADMIN USER</span>
         </div>
         <div class="progress-step" data-step="3">
           <span class="step-number">3</span>
-          <span class="step-label">JUMP SERVER</span>
+          <span class="step-label">SMTP CONFIG</span>
         </div>
         <div class="progress-step" data-step="4">
           <span class="step-number">4</span>
+          <span class="step-label">JUMP SERVER</span>
+        </div>
+        <div class="progress-step" data-step="5">
+          <span class="step-number">5</span>
           <span class="step-label">COMPLETE</span>
         </div>
       </div>
 
       <form id="setup-form" class="auth-form">
-        <!-- Step 1: Admin User -->
+        <!-- Step 1: Database Config -->
         <div class="setup-step active" data-step="1">
+          <h3 class="step-title">SYSTEM & DATABASE CONFIGURATION</h3>
+
+          <div class="form-group">
+            <label class="form-label">SECRET KEY</label>
+            <div style="display: flex; gap: 10px;">
+              <input type="text" id="session-secret-key" class="form-control text-mono" required
+                placeholder="Enter or generate secret key">
+              <button type="button" id="btn-generate-key" class="auth-btn secondary"
+                style="width: auto; padding: 0 15px; margin-top: 0;">GENERATE</button>
+            </div>
+            <div class="form-helper">This key encrypts session cookies and passwords. Keep it secure!</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">ENGINE</label>
+            <select id="db-engine" class="form-control">
+              <option value="sqlite">SQLite</option>
+              <option value="postgres">PostgreSQL</option>
+              <option value="mysql">MySQL</option>
+            </select>
+            <div class="form-helper">Select the database engine you want to use for the system.</div>
+          </div>
+
+          <div class="form-group db-field sqlite-field">
+            <label class="form-label">SQLITE FILE PATH</label>
+            <input type="text" id="db-sqlite-path" class="form-control text-mono" value="mw_monitor.db">
+            <div class="form-helper">Relative or absolute path for SQLite database file.</div>
+          </div>
+
+          <div class="db-field sql-field hidden">
+            <div class="form-group">
+              <label class="form-label">HOST</label>
+              <input type="text" id="db-host" class="form-control text-mono" placeholder="127.0.0.1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">PORT</label>
+              <input type="number" id="db-port" class="form-control text-mono" value="5432">
+            </div>
+            <div class="form-group">
+              <label class="form-label">USERNAME</label>
+              <input type="text" id="db-username" class="form-control text-mono">
+            </div>
+            <div class="form-group">
+              <label class="form-label">PASSWORD</label>
+              <input type="password" id="db-password" class="form-control text-mono">
+            </div>
+            <div class="form-group">
+              <label class="form-label">DATABASE NAME</label>
+              <input type="text" id="db-database" class="form-control text-mono" placeholder="mw_monitor">
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2: Admin User -->
+        <div class="setup-step" data-step="2">
           <h3 class="step-title">CREATE ADMINISTRATOR ACCOUNT</h3>
 
           <div class="form-group">
@@ -68,80 +129,100 @@
           </div>
         </div>
 
-        <!-- Step 2: SMTP Config -->
-        <div class="setup-step" data-step="2">
+        <!-- Step 3: SMTP Config -->
+        <div class="setup-step" data-step="3">
           <h3 class="step-title">SMTP CONFIGURATION</h3>
 
           <div class="form-group">
-            <label class="form-label">SMTP SERVER</label>
-            <input type="text" id="smtp-server" class="form-control text-mono" placeholder="smtp.gmail.com">
-            <div class="form-helper">SMTP server hostname or IP address</div>
+            <label class="setting-label">
+              <input type="checkbox" id="smtp-enabled">
+              <span>Enable SMTP</span>
+            </label>
+            <div class="form-helper">Optional. Enable only if you want email notifications.</div>
           </div>
 
-          <div class="form-group">
-            <label class="form-label">SMTP PORT</label>
-            <input type="number" id="smtp-port" class="form-control text-mono" value="587">
-            <div class="form-helper">SMTP server port (587 for TLS, 465 for SSL)</div>
-          </div>
+          <div class="smtp-fields">
+            <div class="form-group smtp-field">
+              <label class="form-label">SMTP SERVER</label>
+              <input type="text" id="smtp-server" class="form-control text-mono" placeholder="smtp.gmail.com">
+              <div class="form-helper">SMTP server hostname or IP address</div>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">USERNAME</label>
-            <input type="text" id="smtp-username" class="form-control text-mono">
-            <div class="form-helper">SMTP authentication username</div>
-          </div>
+            <div class="form-group smtp-field">
+              <label class="form-label">SMTP PORT</label>
+              <input type="number" id="smtp-port" class="form-control text-mono" value="587">
+              <div class="form-helper">SMTP server port (587 for TLS, 465 for SSL)</div>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">PASSWORD</label>
-            <input type="password" id="smtp-password" class="form-control text-mono">
-            <div class="form-helper">SMTP authentication password</div>
-          </div>
+            <div class="form-group smtp-field">
+              <label class="form-label">USERNAME</label>
+              <input type="text" id="smtp-username" class="form-control text-mono">
+              <div class="form-helper">SMTP authentication username</div>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">FROM EMAIL</label>
-            <input type="email" id="smtp-from-email" class="form-control text-mono">
-            <div class="form-helper">Email address to send notifications from</div>
-          </div>
+            <div class="form-group smtp-field">
+              <label class="form-label">PASSWORD</label>
+              <input type="password" id="smtp-password" class="form-control text-mono">
+              <div class="form-helper">SMTP authentication password</div>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">USE TLS</label>
-            <select id="smtp-use-tls" class="form-control">
-              <option value="true">Yes</option>
-              <option value="false">No</option>
-            </select>
+            <div class="form-group smtp-field">
+              <label class="form-label">FROM EMAIL</label>
+              <input type="email" id="smtp-from-email" class="form-control text-mono">
+              <div class="form-helper">Email address to send notifications from</div>
+            </div>
+
+            <div class="form-group smtp-field">
+              <label class="form-label">USE TLS</label>
+              <select id="smtp-use-tls" class="form-control">
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
+            </div>
           </div>
         </div>
 
-        <!-- Step 3: Jump Server -->
-        <div class="setup-step" data-step="3">
+        <!-- Step 4: Jump Server -->
+        <div class="setup-step" data-step="4">
           <h3 class="step-title">JUMP SERVER CONFIGURATION</h3>
 
           <div class="form-group">
-            <label class="form-label">HOST</label>
-            <input type="text" id="jump-host" class="form-control text-mono" placeholder="192.168.1.100">
-            <div class="form-helper">Jump server hostname or IP address</div>
+            <label class="setting-label">
+              <input type="checkbox" id="jumpserver-enabled">
+              <span>Enable Jump Server</span>
+            </label>
+            <div class="form-helper">Optional. Disable if you do not use a jump server.</div>
           </div>
 
-          <div class="form-group">
-            <label class="form-label">PORT</label>
-            <input type="number" id="jump-port" class="form-control text-mono" value="22">
-            <div class="form-helper">SSH port (default: 22)</div>
-          </div>
+          <div class="jumpserver-fields">
+            <div class="form-group jump-field">
+              <label class="form-label">HOST</label>
+              <input type="text" id="jump-host" class="form-control text-mono" placeholder="192.168.1.100">
+              <div class="form-helper">Jump server hostname or IP address</div>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">USERNAME</label>
-            <input type="text" id="jump-username" class="form-control text-mono">
-            <div class="form-helper">SSH username for jump server access</div>
-          </div>
+            <div class="form-group jump-field">
+              <label class="form-label">PORT</label>
+              <input type="number" id="jump-port" class="form-control text-mono" value="22">
+              <div class="form-helper">SSH port (default: 22)</div>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">PASSWORD</label>
-            <input type="password" id="jump-password" class="form-control text-mono">
-            <div class="form-helper">SSH password for jump server access</div>
+            <div class="form-group jump-field">
+              <label class="form-label">USERNAME</label>
+              <input type="text" id="jump-username" class="form-control text-mono">
+              <div class="form-helper">SSH username for jump server access</div>
+            </div>
+
+            <div class="form-group jump-field">
+              <label class="form-label">PASSWORD</label>
+              <input type="password" id="jump-password" class="form-control text-mono">
+              <div class="form-helper">SSH password for jump server access</div>
+            </div>
           </div>
         </div>
 
-        <!-- Step 4: Complete -->
-        <div class="setup-step" data-step="4">
+        <!-- Step 5: Complete -->
+        <div class="setup-step" data-step="5">
           <h3 class="step-title">SETUP COMPLETE</h3>
           <div class="setup-complete">
             <i class="fa-solid fa-check-circle"></i>
@@ -181,4 +262,5 @@
 
   <script src="/js/setup.js"></script>
 </body>
+
 </html>
