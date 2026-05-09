@@ -23,10 +23,27 @@
       <div class="text-mono">UPTIME: <span id="uptime-val" class="text-teal">99.99%</span></div>
       <div class="text-mono">NEXT_CHECK: <span id="next-check-val">00:00</span></div>
       <div class="topbar-icons">
-        <i class="fa-regular fa-bell"></i>
-        <i class="fa-regular fa-envelope"></i>
-        <i class="fa-solid fa-gear"></i>
-        <i class="fa-solid fa-circle-user"></i>
+        <i class="fa-regular fa-bell" id="notifications-btn" title="Notifications"></i>
+        <i class="fa-regular fa-envelope" id="messages-btn" title="Messages"></i>
+        <i class="fa-solid fa-gear" id="settings-btn" title="Settings"></i>
+        <div class="user-menu">
+          <i class="fa-solid fa-circle-user" id="user-menu-btn"></i>
+          <div class="user-dropdown" id="user-dropdown">
+            <div class="user-info">
+              <div class="user-name" id="user-name">Loading...</div>
+              <div class="user-role" id="user-role">Administrator</div>
+            </div>
+            <div class="dropdown-divider"></div>
+            <a href="/change-password" class="dropdown-item">
+              <i class="fa-solid fa-key"></i>
+              Change Password
+            </a>
+            <a href="#" class="dropdown-item" id="logout-btn">
+              <i class="fa-solid fa-right-from-bracket"></i>
+              Logout
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   </header>
@@ -217,10 +234,166 @@
     <i class="fa-solid fa-plus"></i>
   </div>
 
+  <!-- Notifications Modal -->
+  <div class="modal-overlay" id="notifications-modal">
+    <div class="modal notifications-modal">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-regular fa-bell text-teal"></i> NOTIFICATIONS</div>
+        <button class="modal-close" id="btn-close-notifications"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="notifications-list" id="notifications-list">
+          <!-- Notifications will be loaded here -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-mark-all-read">MARK ALL READ</button>
+          <button class="btn-primary" id="btn-clear-notifications">CLEAR ALL</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="settings-modal">
+    <div class="modal settings-modal">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-gear text-teal"></i> SYSTEM SETTINGS</div>
+        <button class="modal-close" id="btn-close-settings"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-tabs">
+          <div class="tab-buttons">
+            <button class="tab-btn active" data-tab="general">GENERAL</button>
+            <button class="tab-btn" data-tab="smtp">SMTP</button>
+            <button class="tab-btn" data-tab="jumpserver">JUMP SERVER</button>
+            <button class="tab-btn" data-tab="notifications">NOTIFICATIONS</button>
+          </div>
+          <div class="tab-content">
+            <!-- General Settings -->
+            <div class="tab-pane active" data-tab="general">
+              <h4>General Settings</h4>
+              <div class="form-group">
+                <label class="form-label">Ping Interval (seconds)</label>
+                <input type="number" id="ping-interval" class="form-control text-mono" min="30" max="3600">
+                <div class="form-helper">How often to check link status (30-3600 seconds)</div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Session Timeout (minutes)</label>
+                <input type="number" id="session-timeout" class="form-control text-mono" min="5" max="1440">
+                <div class="form-helper">Auto-logout after inactivity (5-1440 minutes)</div>
+              </div>
+            </div>
+
+            <!-- SMTP Settings -->
+            <div class="tab-pane" data-tab="smtp">
+              <h4>SMTP Configuration</h4>
+              <div class="form-group">
+                <label class="form-label">SMTP Server</label>
+                <input type="text" id="smtp-server" class="form-control text-mono">
+              </div>
+              <div class="form-group">
+                <label class="form-label">SMTP Port</label>
+                <input type="number" id="smtp-port" class="form-control text-mono">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Username</label>
+                <input type="text" id="smtp-username" class="form-control text-mono">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" id="smtp-password" class="form-control text-mono">
+              </div>
+              <div class="form-group">
+                <label class="form-label">From Email</label>
+                <input type="email" id="smtp-from-email" class="form-control text-mono">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Use TLS</label>
+                <select id="smtp-use-tls" class="form-control">
+                  <option value="true">Yes</option>
+                  <option value="false">No</option>
+                </select>
+              </div>
+              <div class="form-actions">
+                <button class="btn-primary" id="btn-test-smtp">TEST SMTP</button>
+              </div>
+            </div>
+
+            <!-- Jump Server Settings -->
+            <div class="tab-pane" data-tab="jumpserver">
+              <h4>Jump Server Configuration</h4>
+              <div class="form-group">
+                <label class="form-label">Host</label>
+                <input type="text" id="jump-host" class="form-control text-mono">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Port</label>
+                <input type="number" id="jump-port" class="form-control text-mono" min="1" max="65535">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Username</label>
+                <input type="text" id="jump-username" class="form-control text-mono">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" id="jump-password" class="form-control text-mono">
+              </div>
+              <div class="form-actions">
+                <button class="btn-primary" id="btn-test-jumpserver">TEST CONNECTION</button>
+              </div>
+            </div>
+
+            <!-- Notification Settings -->
+            <div class="tab-pane" data-tab="notifications">
+              <h4>Notification Preferences</h4>
+              <div class="notification-settings">
+                <div class="setting-item">
+                  <label class="setting-label">
+                    <input type="checkbox" id="notify-link-up">
+                    <span>Link comes back UP</span>
+                  </label>
+                </div>
+                <div class="setting-item">
+                  <label class="setting-label">
+                    <input type="checkbox" id="notify-link-down">
+                    <span>Link goes DOWN</span>
+                  </label>
+                </div>
+                <div class="setting-item">
+                  <label class="setting-label">
+                    <input type="checkbox" id="notify-high-util">
+                    <span>High utilization detected</span>
+                  </label>
+                </div>
+                <div class="setting-item">
+                  <label class="setting-label">
+                    <input type="checkbox" id="notify-system-error">
+                    <span>System errors</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-cancel-settings">CANCEL</button>
+          <button class="btn-primary" id="btn-save-settings">SAVE SETTINGS</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="/js/dashboard.js" defer></script>
   <script src="/js/table.js" defer></script>
   <script src="/js/pinglog.js" defer></script>
   <script src="/js/charts.js" defer></script>
   <script src="/js/modal.js" defer></script>
+  <script src="/js/notifications.js" defer></script>
+  <script src="/js/settings.js" defer></script>
+  <script src="/js/user.js" defer></script>
 </body>
 </html>

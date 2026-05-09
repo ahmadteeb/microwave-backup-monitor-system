@@ -2,6 +2,7 @@ import re
 from flask import Blueprint, request, jsonify
 from app.models import db, Link, PingResult, MetricSnapshot
 from app.services.ping_service import ping_single_link
+from app.permissions import login_required, require_permission
 
 links_bp = Blueprint('links', __name__, url_prefix='/api/links')
 
@@ -14,8 +15,11 @@ def serialize_link(link):
     latest_ping = link.ping_results.order_by(PingResult.timestamp.desc()).first()
     latest_metric = link.metrics.order_by(MetricSnapshot.timestamp.desc()).first()
     
+    status = 'UNKNOWN'
+    if link.status:
+        status = link.status.mw_status.upper()
+
     ping_data = None
-    status = 'DOWN'
     latency = None
     if latest_ping:
         ping_data = {
@@ -25,19 +29,14 @@ def serialize_link(link):
             "timestamp": latest_ping.timestamp.isoformat() + "Z"
         }
         latency = latest_ping.latency_ms
-        if latest_ping.reachable:
-            status = 'UP'
-            # If packet loss is present and > 0, we could set status HIGH or PKT_LOSS depending on rules.
-            # But the plan specifies HIGH is based on mw_util_pct > 70.
-            # Let's derive status based on plan rules:
-            # UP if reachable and latency < threshold (no threshold given, assume always UP if reachable unless HIGH util)
-            # TIMEOUT if unreachable and raw_output has timeout
-            # HIGH if mw_util > 70
-        else:
-            if latest_ping.raw_output and "100% packet loss" in latest_ping.raw_output:
-                status = 'TIMEOUT'
+        if status == 'UNKNOWN':
+            if latest_ping.reachable:
+                status = 'UP'
             else:
-                status = 'DOWN'
+                if latest_ping.raw_output and "100% packet loss" in latest_ping.raw_output:
+                    status = 'TIMEOUT'
+                else:
+                    status = 'DOWN'
 
     metric_data = None
     if latest_metric:
@@ -67,6 +66,8 @@ def serialize_link(link):
     }
 
 @links_bp.route('', methods=['GET'])
+@login_required
+@require_permission('links.view')
 def list_links():
     status_filter = request.args.get('status')
     leg_filter = request.args.get('leg')
@@ -108,6 +109,8 @@ def list_links():
     })
 
 @links_bp.route('', methods=['POST'])
+@login_required
+@require_permission('links.add')
 def create_link():
     data = request.get_json()
     if not data or not data.get('link_id') or not data.get('leg_name') or not data.get('mw_ip'):
@@ -137,6 +140,8 @@ def create_link():
     return jsonify(serialize_link(link)), 201
 
 @links_bp.route('/<int:id>', methods=['GET'])
+@login_required
+@require_permission('links.view')
 def get_link(id):
     link = Link.query.get_or_404(id)
     serialized = serialize_link(link)
@@ -160,6 +165,8 @@ def get_link(id):
     }), 200
 
 @links_bp.route('/<int:id>', methods=['PUT'])
+@login_required
+@require_permission('links.edit')
 def update_link(id):
     link = Link.query.get_or_404(id)
     data = request.get_json()
@@ -186,6 +193,8 @@ def update_link(id):
     return jsonify(serialize_link(link)), 200
 
 @links_bp.route('/<int:id>', methods=['DELETE'])
+@login_required
+@require_permission('links.delete')
 def delete_link(id):
     link = Link.query.get_or_404(id)
     link_id = link.link_id
@@ -194,6 +203,8 @@ def delete_link(id):
     return jsonify({"message": "Link deleted", "link_id": link_id}), 200
 
 @links_bp.route('/<int:id>/ping', methods=['POST'])
+@login_required
+@require_permission('links.ping')
 def manual_ping(id):
     link = Link.query.get_or_404(id)
     try:

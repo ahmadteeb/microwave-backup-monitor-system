@@ -2,6 +2,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import threading
 import logging
 from app.services.ping_service import run_ping_cycle
+from app.models import AppSettings
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,9 @@ def ping_job(app):
 
 def init_scheduler(app):
     scheduler = BackgroundScheduler()
-    interval = app.config.get('PING_INTERVAL_SECONDS', 60)
+    with app.app_context():
+        settings = AppSettings.query.get(1)
+        interval = settings.ping_interval_seconds if settings else app.config.get('PING_INTERVAL_SECONDS', 60)
     
     scheduler.add_job(
         func=ping_job,

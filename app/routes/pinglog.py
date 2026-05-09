@@ -1,9 +1,12 @@
 from flask import Blueprint, request, jsonify
 from app.models import PingResult
+from app.permissions import login_required, require_permission
 
 pinglog_bp = Blueprint('pinglog', __name__, url_prefix='/api/ping-log')
 
 @pinglog_bp.route('', methods=['GET'])
+@login_required
+@require_permission('logs.view_ping')
 def get_ping_log():
     limit = request.args.get('limit', 50, type=int)
     if limit > 200:

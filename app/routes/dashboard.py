@@ -1,36 +1,18 @@
 from flask import Blueprint, jsonify
-from app.models import db, Link, PingResult, MetricSnapshot
-from sqlalchemy import func
+from app.models import db, Link, PingResult, MetricSnapshot, LinkStatus
+from app.permissions import login_required, require_permission
 from datetime import datetime, timedelta
 
 dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/api/dashboard')
 
 @dashboard_bp.route('/kpi', methods=['GET'])
+@login_required
+@require_permission('links.view')
 def get_kpis():
     total_links = Link.query.count()
     
-    # In a production app with a large DB, subqueries or denormalized status columns
-    # are better. For this NOC dashboard v1, we can iterate or use a subquery.
-    # We want the latest ping for each link.
-    
-    # The simplest logic given the schema is to fetch all latest pings per link
-    # We can do this efficiently using a window function or distinct in Postgres,
-    # but since we are on SQLite, we can just do a group by max timestamp or query.
-    
-    # Alternatively, since N=142, we can just do it in python to keep it simple:
-    links = Link.query.all()
-    mw_reachable = 0
-    high_utilization = 0
-    
-    for link in links:
-        latest_ping = link.ping_results.order_by(PingResult.timestamp.desc()).first()
-        if latest_ping and latest_ping.reachable:
-            mw_reachable += 1
-            
-        latest_metric = link.metrics.order_by(MetricSnapshot.timestamp.desc()).first()
-        if latest_metric and latest_metric.mw_util_pct and latest_metric.mw_util_pct > 70:
-            high_utilization += 1
-
+    mw_reachable = LinkStatus.query.filter(LinkStatus.mw_status.in_(['up', 'high'])).count()
+    high_utilization = LinkStatus.query.filter(LinkStatus.mw_status == 'high').count()
     mw_unreachable = total_links - mw_reachable
     
     return jsonify({
@@ -42,6 +24,8 @@ def get_kpis():
     }), 200
 
 @dashboard_bp.route('/stability', methods=['GET'])
+@login_required
+@require_permission('links.view')
 def get_stability():
     now = datetime.utcnow()
     twenty_four_hours_ago = now - timedelta(hours=24)

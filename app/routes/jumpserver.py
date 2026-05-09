@@ -1,8 +1,7 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify
 from app.models import db, JumpServer
-from cryptography.fernet import Fernet
-import base64
-import hashlib
+from app.services.crypto_service import encrypt, decrypt
+from app.permissions import login_required, require_permission
 
 jumpserver_bp = Blueprint('jumpserver', __name__, url_prefix='/api/jumpserver')
 
@@ -21,21 +20,11 @@ def decrypt_password(encrypted_password):
     return f.decrypt(encrypted_password.encode('utf-8')).decode('utf-8')
 
 @jumpserver_bp.route('', methods=['GET'])
+@login_required
+@require_permission('config.view')
 def get_jumpserver():
     js = JumpServer.query.filter_by(active=True).first()
     if not js:
-        # Provide fallback from config if none in DB, though usually we want DB config
-        fallback_host = current_app.config.get('JUMP_HOST')
-        if fallback_host:
-            return jsonify({
-                "id": 0,
-                "host": fallback_host,
-                "port": current_app.config.get('JUMP_PORT', 22),
-                "username": current_app.config.get('JUMP_USER'),
-                "password": "••••••••",
-                "active": True,
-                "label": "Config Fallback"
-            }), 200
         return jsonify({"error": "No active jump server configured"}), 404
 
     return jsonify({
@@ -49,19 +38,29 @@ def get_jumpserver():
     }), 200
 
 @jumpserver_bp.route('', methods=['PUT'])
+@login_required
+@require_permission('config.edit_jumpserver')
 def update_jumpserver():
-    data = request.get_json()
-    if not data or not data.get('host') or not data.get('username') or not data.get('password'):
-        return jsonify({"error": "Missing required fields: host, username, password"}), 400
+    data = request.get_json() or {}
+    if not data.get('host') or not data.get('username'):
+        return jsonify({"error": "Missing required fields: host and username"}), 400
 
-    # Deactivate all existing
-    JumpServer.query.update({JumpServer.active: False})
-    
+    active_js = JumpServer.query.filter_by(active=True).first()
+    if active_js:
+        active_js.active = False
+        db.session.commit()
+
+    password = data.get('password')
+    if password and password != '••••••••':
+        encrypted_password = encrypt(password)
+    else:
+        encrypted_password = active_js.password_encrypted if active_js else None
+
     js = JumpServer(
         host=data['host'],
-        port=data.get('port', 22),
+        port=int(data.get('port', 22)),
         username=data['username'],
-        password_encrypted=encrypt_password(data['password']),
+        password_encrypted=encrypted_password,
         active=True,
         label=data.get('label')
     )
