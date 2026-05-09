@@ -43,6 +43,9 @@ let currentStep = 1;
 function showError(message) {
   errorText.textContent = message;
   errorMessage.classList.remove('hidden');
+  if (window.showToast) {
+    window.showToast(message, 'error');
+  }
 }
 
 // Hide error message
@@ -346,6 +349,12 @@ async function handleComplete(event) {
 
   const formData = getFormPayload();
 
+  // Show loading overlay
+  const loader = window.showLoading ? window.showLoading('Completing setup...') : null;
+  if (window.setButtonLoading) {
+    window.setButtonLoading(btnComplete, true, 'COMPLETING...');
+  }
+
   try {
     await fetchAPI('/api/setup/complete', {
       method: 'POST',
@@ -353,10 +362,26 @@ async function handleComplete(event) {
       body: JSON.stringify(formData)
     });
 
-    setTimeout(() => {
+    if (loader) loader.close();
+
+    if (window.showAlert) {
+      await window.showAlert({
+        title: 'SETUP COMPLETE',
+        message: 'System configuration completed successfully. You will be redirected to the login page.',
+        type: 'success',
+        buttonText: 'CONTINUE'
+      });
       window.location.href = '/login';
-    }, 2000);
+    } else {
+      setTimeout(() => {
+        window.location.href = '/login';
+      }, 2000);
+    }
   } catch (error) {
+    if (loader) loader.close();
+    if (window.setButtonLoading) {
+      window.setButtonLoading(btnComplete, false);
+    }
     showError(error.message);
   }
 }
@@ -370,6 +395,9 @@ btnGenerateKey.addEventListener('click', () => {
   const array = new Uint8Array(32);
   window.crypto.getRandomValues(array);
   flaskSecretKey.value = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+  if (window.showToast) {
+    window.showToast('Secret key generated', 'success');
+  }
 });
 
 dbEngine.addEventListener('change', refreshVisibility);

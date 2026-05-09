@@ -22,11 +22,9 @@ function renderNotifications(notifications) {
 
   if (notifications.length === 0) {
     notificationsList.innerHTML = `
-      <div class="notification-item">
-        <div class="notification-content">
-          <div class="notification-title">No notifications</div>
-          <div class="notification-message">You're all caught up!</div>
-        </div>
+      <div class="empty-state">
+        <i class="fa-regular fa-bell-slash"></i>
+        <p>No notifications — you're all caught up!</p>
       </div>
     `;
     return;
@@ -99,26 +97,44 @@ async function markAsRead(notificationId) {
 
 // Mark all notifications as read
 async function markAllRead() {
+  window.setButtonLoading(btnMarkAllRead, true, 'MARKING...');
   try {
     await window.fetchAPI('/api/notifications/read-all', {
       method: 'POST'
     });
     loadNotifications();
+    window.showToast('All notifications marked as read', 'success');
   } catch (error) {
     console.error("Failed to mark all notifications as read", error);
+    window.showToast('Failed to mark notifications as read', 'error');
+  } finally {
+    window.setButtonLoading(btnMarkAllRead, false);
   }
 }
 
 // Clear all notifications from the feed
 async function clearNotifications() {
-  if (confirm('Are you sure you want to clear all notifications? This cannot be undone.')) {
+  const confirmed = await window.showConfirm({
+    title: 'CLEAR ALL NOTIFICATIONS',
+    message: 'Are you sure you want to clear all notifications?<br>This action cannot be undone.',
+    confirmText: 'CLEAR ALL',
+    cancelText: 'CANCEL',
+    variant: 'danger'
+  });
+
+  if (confirmed) {
+    window.setButtonLoading(btnClearNotifications, true, 'CLEARING...');
     try {
       await window.fetchAPI('/api/notifications/clear', {
         method: 'POST'
       });
       loadNotifications();
+      window.showToast('All notifications cleared', 'success');
     } catch (error) {
       console.error("Failed to clear notifications", error);
+      window.showToast('Failed to clear notifications', 'error');
+    } finally {
+      window.setButtonLoading(btnClearNotifications, false);
     }
   }
 }

@@ -4,7 +4,7 @@ __pycache__/
 
 # Environment files
 .env
-db_config.json
+instance/
 secrets/
 
 # Optional (recommended)

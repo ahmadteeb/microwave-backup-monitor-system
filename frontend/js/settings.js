@@ -32,7 +32,7 @@ async function loadSettings() {
     populateForm();
   } catch (error) {
     console.error("Failed to load settings", error);
-    alert("Failed to load settings: " + error.message);
+    window.showToast('Failed to load settings: ' + error.message, 'error');
   }
 }
 
@@ -96,6 +96,8 @@ async function saveSettings() {
     }
   };
 
+  window.setButtonLoading(btnSaveSettings, true, 'SAVING...');
+
   try {
     await Promise.all([
       window.fetchAPI('/api/settings/app', {
@@ -120,11 +122,13 @@ async function saveSettings() {
       })
     ]);
 
-    alert('Settings saved successfully!');
+    window.showToast('Settings saved successfully', 'success');
     hideSettingsModal();
   } catch (error) {
     console.error("Failed to save settings", error);
-    alert("Failed to save settings: " + error.message);
+    window.showToast('Failed to save settings: ' + error.message, 'error');
+  } finally {
+    window.setButtonLoading(btnSaveSettings, false);
   }
 }
 
@@ -139,7 +143,11 @@ function updateSmtpFieldVisibility() {
 // Test SMTP connection
 async function testSmtp() {
   if (!document.getElementById('smtp-enabled').checked) {
-    alert('SMTP is disabled. Enable it before testing.');
+    await window.showAlert({
+      title: 'SMTP Disabled',
+      message: 'SMTP is currently disabled. Enable it before testing.',
+      type: 'warning'
+    });
     return;
   }
 
@@ -152,6 +160,8 @@ async function testSmtp() {
     use_tls: document.getElementById('smtp-use-tls').value === 'true'
   };
 
+  window.setButtonLoading(btnTestSmtp, true, 'TESTING...');
+
   try {
     const result = await window.fetchAPI('/api/settings/smtp/test', {
       method: 'POST',
@@ -159,10 +169,12 @@ async function testSmtp() {
       body: JSON.stringify(smtpData)
     });
 
-    alert('SMTP test successful! Email sent.');
+    window.showToast('SMTP test successful! Email sent.', 'success');
   } catch (error) {
     console.error("SMTP test failed", error);
-    alert("SMTP test failed: " + error.message);
+    window.showToast('SMTP test failed: ' + error.message, 'error');
+  } finally {
+    window.setButtonLoading(btnTestSmtp, false);
   }
 }
 
@@ -175,6 +187,8 @@ async function testJumpserver() {
     password: document.getElementById('jump-password').value
   };
 
+  window.setButtonLoading(btnTestJumpserver, true, 'TESTING...');
+
   try {
     const result = await window.fetchAPI('/api/settings/jumpserver/test', {
       method: 'POST',
@@ -182,10 +196,12 @@ async function testJumpserver() {
       body: JSON.stringify(jumpData)
     });
 
-    alert('Jump server test successful! Connection established.');
+    window.showToast('Jump server connection successful!', 'success');
   } catch (error) {
     console.error("Jump server test failed", error);
-    alert("Jump server test failed: " + error.message);
+    window.showToast('Jump server test failed: ' + error.message, 'error');
+  } finally {
+    window.setButtonLoading(btnTestJumpserver, false);
   }
 }
 

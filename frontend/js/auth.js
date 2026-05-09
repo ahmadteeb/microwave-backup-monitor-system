@@ -19,11 +19,15 @@ const usernameInput = document.getElementById('username');
 const passwordInput = document.getElementById('password');
 const errorMessage = document.getElementById('error-message');
 const errorText = document.getElementById('error-text');
+const submitBtn = loginForm.querySelector('button[type="submit"]');
 
 // Show error message
 function showError(message) {
   errorText.textContent = message;
   errorMessage.classList.remove('hidden');
+  if (window.showToast) {
+    window.showToast(message, 'error');
+  }
 }
 
 // Hide error message
@@ -44,6 +48,11 @@ async function handleLogin(event) {
     return;
   }
 
+  // Show loading state on submit button
+  if (window.setButtonLoading) {
+    window.setButtonLoading(submitBtn, true, 'AUTHENTICATING...');
+  }
+
   try {
     const response = await fetchAPI('/api/auth/login', {
       method: 'POST',
@@ -55,6 +64,10 @@ async function handleLogin(event) {
     window.location.href = '/';
   } catch (error) {
     showError(error.message);
+  } finally {
+    if (window.setButtonLoading) {
+      window.setButtonLoading(submitBtn, false);
+    }
   }
 }
 

@@ -3,12 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="MW Backup Link Monitor System — Real-time microwave link health monitoring, utilization tracking, and network stability analysis for NOC operations.">
   <title>MW Backup Link Monitor System</title>
   <link rel="stylesheet" href="/css/main.css">
   <link rel="stylesheet" href="/css/components.css">
-  <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-  <!-- Optional: Use FontAwesome CDN for icons since kit is required. Using reliable cdnjs -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
@@ -131,8 +130,8 @@
           ACTIVE LINK INVENTORY <span class="table-count-badge" id="table-count">0 TOTAL</span>
         </div>
         <div class="table-actions">
-          <i class="fa-solid fa-filter"></i>
-          <i class="fa-solid fa-download"></i>
+          <i class="fa-solid fa-filter" id="btn-table-filter" title="Filter"></i>
+          <i class="fa-solid fa-download" id="btn-table-download" title="Download"></i>
         </div>
       </div>
       
@@ -185,7 +184,7 @@
 
   </main>
 
-  <!-- Modal -->
+  <!-- Link Configure Modal -->
   <div class="modal-overlay" id="link-modal">
     <div class="modal">
       <div class="modal-header">
@@ -290,9 +289,10 @@
             <div class="tab-pane" data-tab="smtp">
               <h4>SMTP Configuration</h4>
               <div class="form-group">
-                <label class="form-label">
+                <label class="toggle-switch">
                   <input type="checkbox" id="smtp-enabled">
-                  Enable SMTP
+                  <span class="toggle-track"></span>
+                  <span>Enable SMTP</span>
                 </label>
               </div>
               <div class="form-group smtp-field">
@@ -323,7 +323,7 @@
                 </select>
               </div>
               <div class="form-actions">
-                <button class="btn-primary" id="btn-test-smtp">TEST SMTP</button>
+                <button class="btn-primary" id="btn-test-smtp"><i class="fa-solid fa-paper-plane"></i> TEST SMTP</button>
               </div>
             </div>
 
@@ -347,7 +347,7 @@
                 <input type="password" id="jump-password" class="form-control text-mono">
               </div>
               <div class="form-actions">
-                <button class="btn-primary" id="btn-test-jumpserver">TEST CONNECTION</button>
+                <button class="btn-primary" id="btn-test-jumpserver"><i class="fa-solid fa-plug"></i> TEST CONNECTION</button>
               </div>
             </div>
 
@@ -356,26 +356,30 @@
               <h4>Notification Preferences</h4>
               <div class="notification-settings">
                 <div class="setting-item">
-                  <label class="setting-label">
+                  <label class="toggle-switch">
                     <input type="checkbox" id="notify-link-up">
+                    <span class="toggle-track"></span>
                     <span>Link comes back UP</span>
                   </label>
                 </div>
                 <div class="setting-item">
-                  <label class="setting-label">
+                  <label class="toggle-switch">
                     <input type="checkbox" id="notify-link-down">
+                    <span class="toggle-track"></span>
                     <span>Link goes DOWN</span>
                   </label>
                 </div>
                 <div class="setting-item">
-                  <label class="setting-label">
+                  <label class="toggle-switch">
                     <input type="checkbox" id="notify-high-util">
+                    <span class="toggle-track"></span>
                     <span>High utilization detected</span>
                   </label>
                 </div>
                 <div class="setting-item">
-                  <label class="setting-label">
+                  <label class="toggle-switch">
                     <input type="checkbox" id="notify-system-error">
+                    <span class="toggle-track"></span>
                     <span>System errors</span>
                   </label>
                 </div>
@@ -387,12 +391,13 @@
       <div class="modal-footer">
         <div class="modal-actions">
           <button class="btn-ghost" id="btn-cancel-settings">CANCEL</button>
-          <button class="btn-primary" id="btn-save-settings">SAVE SETTINGS</button>
+          <button class="btn-primary" id="btn-save-settings"><i class="fa-regular fa-floppy-disk"></i> SAVE SETTINGS</button>
         </div>
       </div>
     </div>
   </div>
 
+  <script src="/js/dialog.js" defer></script>
   <script src="/js/dashboard.js" defer></script>
   <script src="/js/table.js" defer></script>
   <script src="/js/pinglog.js" defer></script>

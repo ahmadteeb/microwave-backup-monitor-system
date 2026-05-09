@@ -92,6 +92,9 @@ async function handleSave() {
   const url = isEdit ? `/api/links/${id}` : '/api/links';
   const method = isEdit ? 'PUT' : 'POST';
   
+  // Show loading state on save button
+  window.setButtonLoading(btnSaveModal, true, 'SAVING...');
+  
   try {
     const response = await window.fetchAPI(url, {
       method: method,
@@ -100,9 +103,13 @@ async function handleSave() {
     });
     
     closeModal();
+    window.showToast(isEdit ? 'Link updated successfully' : 'Link created successfully', 'success');
     if (window.refreshTable) window.refreshTable();
   } catch (err) {
     showError(err.message);
+    window.showToast('Failed to save link: ' + err.message, 'error');
+  } finally {
+    window.setButtonLoading(btnSaveModal, false);
   }
 }
 
@@ -113,17 +120,30 @@ window.openEditModal = async (id) => {
     openModal('edit', data.link);
   } catch (err) {
     console.error("Failed to load link details", err);
+    window.showToast('Failed to load link details', 'error');
   }
 };
 
 window.deleteLink = async (id, linkId) => {
-  if (confirm(`Are you sure you want to delete link ${linkId}? This cannot be undone.`)) {
+  const confirmed = await window.showConfirm({
+    title: 'DELETE LINK',
+    message: `Are you sure you want to delete link <strong>${linkId}</strong>?<br>This action cannot be undone.`,
+    confirmText: 'DELETE',
+    cancelText: 'CANCEL',
+    variant: 'danger'
+  });
+
+  if (confirmed) {
+    const loader = window.showLoading('Deleting link...');
     try {
       await window.fetchAPI(`/api/links/${id}`, { method: 'DELETE' });
+      loader.close();
+      window.showToast(`Link ${linkId} deleted successfully`, 'success');
       if (window.refreshTable) window.refreshTable();
     } catch (err) {
+      loader.close();
       console.error("Failed to delete link", err);
-      alert("Error deleting link: " + err.message);
+      window.showToast('Error deleting link: ' + err.message, 'error');
     }
   }
 };

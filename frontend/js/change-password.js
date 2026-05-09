@@ -21,12 +21,16 @@ const confirmPasswordInput = document.getElementById('confirm-password');
 const errorMessage = document.getElementById('error-message');
 const errorText = document.getElementById('error-text');
 const successMessage = document.getElementById('success-message');
+const submitBtn = changePasswordForm.querySelector('button[type="submit"]');
 
 // Show error message
 function showError(message) {
   errorText.textContent = message;
   errorMessage.classList.remove('hidden');
   successMessage.classList.add('hidden');
+  if (window.showToast) {
+    window.showToast(message, 'error');
+  }
 }
 
 // Hide error message
@@ -74,6 +78,11 @@ async function handleChangePassword(event) {
     return;
   }
 
+  // Show loading state on submit button
+  if (window.setButtonLoading) {
+    window.setButtonLoading(submitBtn, true, 'UPDATING...');
+  }
+
   try {
     const response = await fetchAPI('/api/auth/change-password', {
       method: 'POST',
@@ -87,12 +96,20 @@ async function handleChangePassword(event) {
 
     showSuccess();
 
+    if (window.showToast) {
+      window.showToast('Password changed successfully', 'success');
+    }
+
     // Redirect to dashboard after success
     setTimeout(() => {
       window.location.href = '/';
     }, 2000);
   } catch (error) {
     showError(error.message);
+  } finally {
+    if (window.setButtonLoading) {
+      window.setButtonLoading(submitBtn, false);
+    }
   }
 }
 
