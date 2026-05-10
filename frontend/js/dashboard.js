@@ -22,8 +22,37 @@ const healthBadge = document.getElementById('sys-health-badge');
 const nextCheckVal = document.getElementById('next-check-val');
 
 // Global state for polling config
-const PING_INTERVAL_SECONDS = 60; // Should ideally come from backend config, hardcoded for v1 per plan
+let PING_INTERVAL_SECONDS = 60; // fallback when backend config is unavailable
 let nextCheckCountdown = PING_INTERVAL_SECONDS;
+let pollIntervalId = null;
+
+async function loadPollingConfig() {
+  try {
+    const settings = await fetchAPI('/api/settings/app');
+    const interval = parseInt(settings.app?.ping_interval_seconds, 10);
+    if (!Number.isNaN(interval) && interval > 0) {
+      PING_INTERVAL_SECONDS = interval;
+      nextCheckCountdown = PING_INTERVAL_SECONDS;
+    }
+  } catch (error) {
+    console.warn('Unable to load polling configuration:', error);
+  }
+}
+
+function schedulePolling() {
+  if (pollIntervalId) {
+    clearInterval(pollIntervalId);
+  }
+  pollIntervalId = setInterval(pollKPIs, PING_INTERVAL_SECONDS * 1000);
+}
+
+function applyPollingConfig(intervalSeconds) {
+  if (!Number.isNaN(intervalSeconds) && intervalSeconds > 0) {
+    PING_INTERVAL_SECONDS = intervalSeconds;
+    nextCheckCountdown = PING_INTERVAL_SECONDS;
+    schedulePolling();
+  }
+}
 
 // KPI Polling
 async function pollKPIs() {
@@ -33,6 +62,8 @@ async function pollKPIs() {
     updateHealthBadge(data, null);
   } catch (error) {
     updateHealthBadge(null, error);
+  } finally {
+    nextCheckCountdown = PING_INTERVAL_SECONDS;
   }
 }
 
@@ -52,6 +83,12 @@ function updateKPIValues(data) {
   animateValue(kpiReachable, data.mw_reachable);
   animateValue(kpiUnreachable, data.mw_unreachable);
   animateValue(kpiHigh, data.high_utilization);
+  if (data.uptime_display) {
+    const uptimeVal = document.getElementById('uptime-val');
+    if (uptimeVal) {
+      uptimeVal.textContent = data.uptime_display;
+    }
+  }
 }
 
 function updateHealthBadge(data, error) {
@@ -85,11 +122,19 @@ function tickCountdown() {
 }
 
 // Initialization
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadPollingConfig();
   pollKPIs();
-  setInterval(pollKPIs, 30000);
+  schedulePolling();
   setInterval(tickCountdown, 1000);
   
   // Make fetchAPI globally available for other scripts
   window.fetchAPI = fetchAPI;
+
+  window.addEventListener('appSettingsUpdated', (event) => {
+    const interval = event?.detail?.settings?.app?.ping_interval_seconds;
+    if (interval) {
+      applyPollingConfig(interval);
+    }
+  });
 });

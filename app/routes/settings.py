@@ -30,6 +30,7 @@ def _build_smtp_response(config):
         'username': config.username,
         'password': _mask_password(config.password_encrypted),
         'from_address': config.from_address,
+        'from_email': config.from_address,
         'use_tls': config.use_tls,
         'use_ssl': config.use_ssl
     }
@@ -88,9 +89,10 @@ def update_smtp():
     if 'username' in data and data['username'] != config.username:
         changed['username'] = [config.username, data['username']]
         config.username = data['username']
-    if 'from_address' in data and data['from_address'] != config.from_address:
-        changed['from_address'] = [config.from_address, data['from_address']]
-        config.from_address = data['from_address']
+    from_address = data.get('from_address') or data.get('from_email')
+    if from_address is not None and from_address != config.from_address:
+        changed['from_address'] = [config.from_address, from_address]
+        config.from_address = from_address
     if 'use_tls' in data and data['use_tls'] != config.use_tls:
         changed['use_tls'] = [config.use_tls, data['use_tls']]
         config.use_tls = bool(data['use_tls'])
@@ -168,10 +170,19 @@ def get_jumpserver():
 @require_permission('config.edit_jumpserver')
 def update_jumpserver():
     data = request.get_json() or {}
+    active = bool(data.get('active', True))
+    active_js = JumpServer.query.filter_by(active=True).first()
+
+    if not active:
+        if active_js:
+            active_js.active = False
+            db.session.commit()
+            write_log('config', 'jumpserver_disabled', session.get('username', 'system'), 'jumpserver', {})
+        return jsonify({'jumpserver': None}), 200
+
     if not data.get('host') or not data.get('username'):
         return jsonify({'error': 'Missing required fields'}), 400
 
-    active_js = JumpServer.query.filter_by(active=True).first()
     changed = {}
     if active_js:
         active_js.active = False

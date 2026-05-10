@@ -1,6 +1,8 @@
 import re
 import time
 import logging
+import platform
+import subprocess
 from datetime import datetime
 from flask import current_app
 from app.models import db, Link, PingResult, JumpServer, AppSettings, LinkStatus, MetricSnapshot
@@ -59,6 +61,24 @@ def _get_active_jumpserver_config():
         return host, port, username, password
 
     return None
+
+
+def _run_local_ping(ip):
+    settings = _get_ping_settings()
+    system_name = platform.system().lower()
+    if system_name == 'windows':
+        cmd = ['ping', '-n', str(settings['count']), '-w', str(settings['timeout'] * 1000), ip]
+    else:
+        cmd = ['ping', '-c', str(settings['count']), '-W', str(settings['timeout']), ip]
+
+    try:
+        raw_output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True, timeout=(settings['count'] * settings['timeout'] + 10))
+    except subprocess.CalledProcessError as e:
+        raw_output = e.output
+    except subprocess.TimeoutExpired as e:
+        raw_output = e.output or str(e)
+
+    return raw_output
 
 
 def _get_ping_settings():
@@ -150,71 +170,73 @@ def _persist_ping_result(link, reachable, latency_ms, packet_loss, raw_output, t
 
 
 def ping_single_link(link):
-    """Pings a single link using a fresh SSH session."""
+    """Pings a single link using an active jump server or local ping fallback."""
     config = _get_active_jumpserver_config()
-    if not config:
-        logger.error("No active jump server configuration found.")
-        raise Exception("Jump server not configured")
-
-    host, port, username, password = config
-    ssh = SSHService(host, username, password, port)
-    
-    try:
-        ssh.connect()
-    except Exception as e:
-        logger.error(f"Failed to connect to jump server: {e}")
-        raise Exception("Jump server connection failed")
-
-    settings = _get_ping_settings()
-    cmd = f"ping -c {settings['count']} -W {settings['timeout']} {link.mw_ip}"
-    
     raw_output = ""
-    try:
-        raw_output = ssh.execCommand(cmd)
+
+    if config:
+        host, port, username, password = config
+        ssh = SSHService(host, username, password, port)
+        try:
+            ssh.connect()
+        except Exception as e:
+            logger.error(f"Failed to connect to jump server: {e}")
+            raise Exception("Jump server connection failed")
+
+        settings = _get_ping_settings()
+        cmd = f"ping -c {settings['count']} -W {settings['timeout']} {link.mw_ip}"
+
+        try:
+            raw_output = ssh.execCommand(cmd)
+            reachable, latency_ms, packet_loss = parse_ping_output(raw_output)
+        except Exception as e:
+            logger.error(f"Ping command failed for {link.mw_ip}: {e}")
+            raw_output = str(e)
+            send_event_notification(
+                'ping_service_error',
+                f'Ping command failed for {link.link_id}: {e}',
+                link_id=link.id,
+                severity='error'
+            )
+            reachable, latency_ms, packet_loss = False, None, None
+        finally:
+            ssh.disconnect()
+    else:
+        raw_output = _run_local_ping(link.mw_ip)
         reachable, latency_ms, packet_loss = parse_ping_output(raw_output)
-    except Exception as e:
-        logger.error(f"Ping command failed for {link.mw_ip}: {e}")
-        raw_output = str(e)
-        send_event_notification(
-            'ping_service_error',
-            f'Ping command failed for {link.link_id}: {e}',
-            link_id=link.id,
-            severity='error'
-        )
-        reachable, latency_ms, packet_loss = False, None, None
-    finally:
-        ssh.disconnect()
 
     result = _persist_ping_result(link, reachable, latency_ms, packet_loss, raw_output, triggered_by='manual')
     db.session.commit()
     return result
 
 def run_ping_cycle():
-    """Runs a full ping cycle across all links reusing a single SSH connection."""
+    """Runs a full ping cycle across all links using a jump server or local ping fallback."""
     config = _get_active_jumpserver_config()
-    if not config:
-        logger.error("Skipping ping cycle: No jump server configured.")
-        return
+    using_jump_server = bool(config)
+    ssh = None
 
-    host, port, username, password = config
-    ssh = SSHService(host, username, password, port)
-    
-    try:
-        ssh.connect()
-    except Exception as e:
-        logger.error(f"Ping cycle aborted: Failed to connect to jump server {host}: {e}")
-        return
+    if using_jump_server:
+        host, port, username, password = config
+        ssh = SSHService(host, username, password, port)
+        try:
+            ssh.connect()
+        except Exception as e:
+            logger.error(f"Ping cycle aborted: Failed to connect to jump server {host}: {e}")
+            return
 
     links = Link.query.all()
     settings = _get_ping_settings()
     cmd_template = "ping -c {count} -W {timeout} {ip}"
-    # The execCommand implementation is limited by a fixed 1-second recv wait,
-    # so keep the command simple and rely on the ping output that is available.
 
     for link in links:
-        cmd = cmd_template.format(count=settings['count'], timeout=settings['timeout'], ip=link.mw_ip)
+        raw_output = ""
         try:
-            raw_output = ssh.execCommand(cmd)
+            if using_jump_server:
+                cmd = cmd_template.format(count=settings['count'], timeout=settings['timeout'], ip=link.mw_ip)
+                raw_output = ssh.execCommand(cmd)
+            else:
+                raw_output = _run_local_ping(link.mw_ip)
+
             reachable, latency_ms, packet_loss = parse_ping_output(raw_output)
             _persist_ping_result(link, reachable, latency_ms, packet_loss, raw_output)
         except Exception as e:
@@ -233,4 +255,5 @@ def run_ping_cycle():
         logger.error(f"Failed to commit ping cycle results: {e}")
         db.session.rollback()
     finally:
-        ssh.disconnect()
+        if ssh:
+            ssh.disconnect()

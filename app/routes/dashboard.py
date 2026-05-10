@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify
+from app import APP_START_TIME
 from app.models import db, Link, PingResult, MetricSnapshot, LinkStatus
 from app.permissions import login_required, require_permission
 from datetime import datetime, timedelta
@@ -15,11 +16,24 @@ def get_kpis():
     high_utilization = LinkStatus.query.filter(LinkStatus.mw_status == 'high').count()
     mw_unreachable = total_links - mw_reachable
     
+    uptime_seconds = int((datetime.utcnow() - APP_START_TIME).total_seconds())
+    uptime_parts = []
+    days = uptime_seconds // 86400
+    hours = (uptime_seconds % 86400) // 3600
+    minutes = (uptime_seconds % 3600) // 60
+    if days:
+        uptime_parts.append(f"{days}d");
+    if hours:
+        uptime_parts.append(f"{hours}h");
+    uptime_parts.append(f"{minutes}m")
+    uptime_display = ' '.join(uptime_parts)
+
     return jsonify({
         "total_links": total_links,
         "mw_reachable": mw_reachable,
         "mw_unreachable": mw_unreachable,
         "high_utilization": high_utilization,
+        "uptime_display": uptime_display,
         "last_updated": datetime.utcnow().isoformat() + "Z"
     }), 200
 

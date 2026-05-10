@@ -149,8 +149,12 @@ window.deleteLink = async (id, linkId) => {
 };
 
 // Event Listeners
-btnAddSidebar.addEventListener('click', () => openModal('create'));
-fabAddLink.addEventListener('click', () => openModal('create'));
+if (btnAddSidebar) {
+  btnAddSidebar.addEventListener('click', () => openModal('create'));
+}
+if (fabAddLink) {
+  fabAddLink.addEventListener('click', () => openModal('create'));
+}
 btnCloseModal.addEventListener('click', closeModal);
 btnCancelModal.addEventListener('click', closeModal);
 btnSaveModal.addEventListener('click', handleSave);

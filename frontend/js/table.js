@@ -3,6 +3,7 @@ const tableBody = document.getElementById('link-table-body');
 const searchInput = document.getElementById('search-input');
 const statusFilter = document.getElementById('status-filter');
 const legFilter = document.getElementById('leg-filter');
+const btnTableDownload = document.getElementById('btn-table-download');
 const btnPrevPage = document.getElementById('btn-prev-page');
 const btnNextPage = document.getElementById('btn-next-page');
 const pageInfo = document.getElementById('page-info');
@@ -148,6 +149,23 @@ legFilter.addEventListener('change', () => {
   currentPage = 1;
   pollTable();
 });
+
+if (btnTableDownload) {
+  btnTableDownload.addEventListener('click', () => {
+    const params = new URLSearchParams();
+    if (statusFilter.value && statusFilter.value !== 'ALL_OPERATIONAL') {
+      params.set('status', statusFilter.value);
+    }
+    if (legFilter.value && legFilter.value !== 'ALL_REGIONS') {
+      params.set('leg', legFilter.value);
+    }
+    const search = searchInput.value.trim();
+    if (search) {
+      params.set('search', search);
+    }
+    window.location.href = `/api/links/export?${params.toString()}`;
+  });
+}
 
 btnPrevPage.addEventListener('click', () => {
   if (currentPage > 1) {

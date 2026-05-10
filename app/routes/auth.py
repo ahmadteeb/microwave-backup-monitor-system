@@ -96,9 +96,6 @@ def login():
     session.update(_session_payload(user))
     write_log('auth', 'login_success', user.username, user.username, {'ip': request.remote_addr})
 
-    if user.force_password_change:
-        return jsonify({'redirect': '/change-password'}), 200
-
     return jsonify({'redirect': '/'}), 200
 
 
