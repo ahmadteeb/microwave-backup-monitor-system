@@ -3,8 +3,7 @@ const modalOverlay = document.getElementById('link-modal');
 const btnCloseModal = document.getElementById('btn-close-modal');
 const btnCancelModal = document.getElementById('btn-cancel-modal');
 const btnSaveModal = document.getElementById('btn-save-modal');
-const btnAddSidebar = document.getElementById('btn-add-sidebar');
-const fabAddLink = document.getElementById('fab-add-link');
+const btnAddLink = document.getElementById('btn-add-link');
 
 // Form Fields
 const modalId = document.getElementById('modal-id');
@@ -15,6 +14,10 @@ const inputSiteB = document.getElementById('modal-site-b');
 const inputMwIp = document.getElementById('modal-mw-ip');
 const ipHelper = document.getElementById('modal-ip-helper');
 const ipErrorIcon = document.getElementById('ip-error-icon');
+const inputFiberUtil = document.getElementById('fiber-util-input');
+const inputMwUtil = document.getElementById('mw-util-input');
+const btnSubmitMetric = document.getElementById('submit-metric-btn');
+const metricMessage = document.getElementById('metric-message');
 
 // Functions
 function openModal(mode = 'create', data = {}) {
@@ -27,6 +30,14 @@ function openModal(mode = 'create', data = {}) {
     inputSiteA.value = data.site_a || '';
     inputSiteB.value = data.site_b || '';
     inputMwIp.value = data.mw_ip;
+    inputFiberUtil.value = data.latest_metric?.fiber_util_pct ?? '';
+    inputMwUtil.value = data.latest_metric?.mw_util_pct ?? '';
+    metricMessage.textContent = '';
+    if (window.renderPingHistoryChart && data.ping_history) {
+      window.renderPingHistoryChart(data.ping_history);
+    }
+  } else {
+    resetMetricFields();
   }
   
   modalOverlay.classList.add('active');
@@ -43,11 +54,27 @@ function resetForm() {
   inputSiteA.value = '';
   inputSiteB.value = '';
   inputMwIp.value = '';
-  
+  resetMetricFields();
   inputMwIp.classList.remove('error');
   ipHelper.classList.remove('error');
   ipErrorIcon.classList.add('hidden');
   ipHelper.textContent = 'Required field: Provide a valid IPv4 address for link telemetry.';
+}
+
+function resetMetricFields() {
+  if (inputFiberUtil) inputFiberUtil.value = '';
+  if (inputMwUtil) inputMwUtil.value = '';
+  if (metricMessage) {
+    metricMessage.textContent = '';
+    metricMessage.classList.remove('error');
+  }
+}
+
+function showMetricError(msg) {
+  if (metricMessage) {
+    metricMessage.textContent = msg;
+    metricMessage.classList.add('error');
+  }
 }
 
 function validateIPv4(ip) {
@@ -113,11 +140,55 @@ async function handleSave() {
   }
 }
 
+async function handleRecordMetric() {
+  const id = modalId.value;
+  if (!id) {
+    showMetricError('Select a link before recording metrics.');
+    return;
+  }
+
+  const fiberValue = inputFiberUtil.value.trim();
+  const mwValue = inputMwUtil.value.trim();
+  const payload = {};
+
+  if (fiberValue !== '') {
+    payload.fiber_util_pct = parseFloat(fiberValue);
+  }
+  if (mwValue !== '') {
+    payload.mw_util_pct = parseFloat(mwValue);
+  }
+
+  if (Object.keys(payload).length === 0) {
+    showMetricError('Enter at least one utilization value to record.');
+    return;
+  }
+
+  window.setButtonLoading(btnSubmitMetric, true, 'RECORDING...');
+  try {
+    await window.fetchAPI(`/api/links/${id}/metrics`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    window.showToast('Utilization recorded successfully', 'success');
+    if (window.refreshTable) window.refreshTable();
+    resetMetricFields();
+  } catch (err) {
+    showMetricError(err.message);
+    window.showToast('Failed to record utilization: ' + err.message, 'error');
+  } finally {
+    window.setButtonLoading(btnSubmitMetric, false);
+  }
+}
+
 // Global functions for table actions
 window.openEditModal = async (id) => {
   try {
     const data = await window.fetchAPI(`/api/links/${id}`);
     openModal('edit', data.link);
+    if (window.renderPingHistoryChart) {
+      window.renderPingHistoryChart(data.ping_history || []);
+    }
   } catch (err) {
     console.error("Failed to load link details", err);
     window.showToast('Failed to load link details', 'error');
@@ -149,15 +220,15 @@ window.deleteLink = async (id, linkId) => {
 };
 
 // Event Listeners
-if (btnAddSidebar) {
-  btnAddSidebar.addEventListener('click', () => openModal('create'));
-}
-if (fabAddLink) {
-  fabAddLink.addEventListener('click', () => openModal('create'));
+if (btnAddLink) {
+  btnAddLink.addEventListener('click', () => openModal('create'));
 }
 btnCloseModal.addEventListener('click', closeModal);
 btnCancelModal.addEventListener('click', closeModal);
 btnSaveModal.addEventListener('click', handleSave);
+if (btnSubmitMetric) {
+  btnSubmitMetric.addEventListener('click', handleRecordMetric);
+}
 
 // Close on backdrop click
 modalOverlay.addEventListener('click', (e) => {

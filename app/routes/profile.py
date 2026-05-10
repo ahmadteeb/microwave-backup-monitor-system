@@ -10,7 +10,7 @@ profile_bp = Blueprint('profile', __name__, url_prefix='/api/profile')
 @profile_bp.route('', methods=['GET'])
 @login_required
 def get_profile():
-    user = User.query.get(session.get('user_id'))
+    user = db.session.get(User, session.get('user_id'))
     if not user:
         return jsonify({'error': 'User not found'}), 404
     return jsonify({
@@ -29,7 +29,7 @@ def get_profile():
 @profile_bp.route('', methods=['PUT'])
 @login_required
 def update_profile():
-    user = User.query.get(session.get('user_id'))
+    user = db.session.get(User, session.get('user_id'))
     if not user:
         return jsonify({'error': 'User not found'}), 404
 

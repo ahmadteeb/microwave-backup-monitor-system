@@ -168,6 +168,32 @@ function hideNotificationsModal() {
   notificationsModal.classList.remove('active');
 }
 
+// Handle real-time notification from WebSocket
+function handleNewNotification(data) {
+  // Update badge count immediately
+  if (data.unread_count !== undefined) {
+    updateNotificationsCount(data.unread_count);
+  }
+
+  // If the notifications modal is open, prepend the new notification
+  if (notificationsModal.classList.contains('active') && data.notification) {
+    // Re-fetch to get the full list with IDs
+    loadNotifications();
+  }
+
+  // Show a toast for the new notification
+  if (data.notification) {
+    const title = data.notification.event_key
+      ? data.notification.event_key.replace(/_/g, ' ').toUpperCase()
+      : 'NOTIFICATION';
+    const severity = data.notification.severity || 'info';
+    const toastType = severity === 'critical' || severity === 'error' ? 'error'
+                    : severity === 'warning' ? 'warning'
+                    : 'info';
+    window.showToast(`${title}: ${data.notification.message}`, toastType);
+  }
+}
+
 // Event listeners
 notificationsBtn.addEventListener('click', showNotificationsModal);
 btnCloseNotifications.addEventListener('click', hideNotificationsModal);
@@ -183,4 +209,9 @@ notificationsModal.addEventListener('click', (e) => {
 document.addEventListener('DOMContentLoaded', () => {
   // Load notifications on page load
   loadNotifications();
+
+  // Listen for real-time notifications via WebSocket
+  window.addEventListener('ws:notification_new', (event) => {
+    handleNewNotification(event.detail);
+  });
 });

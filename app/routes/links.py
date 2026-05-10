@@ -1,9 +1,11 @@
 import csv
 import io
 import re
+from datetime import datetime
 from flask import Blueprint, request, jsonify, Response
-from app.models import db, Link, PingResult, MetricSnapshot
+from app.models import db, Link, PingResult, MetricSnapshot, AppSettings, LinkStatus
 from app.services.ping_service import ping_single_link
+from app.services.notification_service import send_event_notification
 from app.permissions import login_required, require_permission
 
 links_bp = Blueprint('links', __name__, url_prefix='/api/links')
@@ -47,7 +49,9 @@ def serialize_link(link):
             "mw_util_pct": latest_metric.mw_util_pct,
             "timestamp": latest_metric.timestamp.isoformat() + "Z"
         }
-        if status == 'UP' and latest_metric.mw_util_pct and latest_metric.mw_util_pct > 70:
+        settings = db.session.get(AppSettings, 1)
+        warn_pct = settings.util_warning_threshold_pct if settings else 70.0
+        if status == 'UP' and latest_metric.mw_util_pct is not None and latest_metric.mw_util_pct >= warn_pct:
             status = 'HIGH'
 
     return {
@@ -89,18 +93,13 @@ def list_links():
             Link.leg_name.ilike(search_term)
         ))
 
-    # We do pagination first
-    paginated = query.paginate(page=page, per_page=per_page, error_out=False)
-    
-    # Process items to apply status filter (since status is derived)
-    results = [serialize_link(link) for link in paginated.items]
-    
     if status_filter and status_filter != 'ALL_OPERATIONAL':
-        results = [r for r in results if r['status'] == status_filter.upper()]
-        # Note: server-side pagination with derived filtering is tricky.
-        # A more robust solution requires status to be a DB column.
-        # For v1, filtering after pagination or returning all matching is acceptable since N is small.
-        # Wait, if we filter after pagination, page size varies. For v1 this is okay.
+        status_lower = status_filter.lower()
+        query = query.outerjoin(LinkStatus, Link.id == LinkStatus.link_id)
+        query = query.filter(LinkStatus.mw_status == status_lower)
+
+    paginated = query.paginate(page=page, per_page=per_page, error_out=False)
+    results = [serialize_link(link) for link in paginated.items]
 
     return jsonify({
         "links": results,
@@ -127,11 +126,13 @@ def export_links():
             Link.link_id.ilike(search_term),
             Link.leg_name.ilike(search_term)
         ))
+    if status_filter and status_filter != 'ALL_OPERATIONAL':
+        status_lower = status_filter.lower()
+        query = query.outerjoin(LinkStatus, Link.id == LinkStatus.link_id)
+        query = query.filter(LinkStatus.mw_status == status_lower)
 
     links = query.all()
     exported = [serialize_link(link) for link in links]
-    if status_filter and status_filter != 'ALL_OPERATIONAL':
-        exported = [link for link in exported if link['status'] == status_filter.upper()]
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -193,7 +194,9 @@ def create_link():
 @login_required
 @require_permission('links.view')
 def get_link(id):
-    link = Link.query.get_or_404(id)
+    link = db.session.get(Link, id)
+    if not link:
+        return jsonify({'error': 'Link not found'}), 404
     serialized = serialize_link(link)
     
     ping_history = PingResult.query.filter_by(link_id=id).order_by(PingResult.timestamp.desc()).limit(1440).all()
@@ -218,7 +221,9 @@ def get_link(id):
 @login_required
 @require_permission('links.edit')
 def update_link(id):
-    link = Link.query.get_or_404(id)
+    link = db.session.get(Link, id)
+    if not link:
+        return jsonify({'error': 'Link not found'}), 404
     data = request.get_json()
     
     if 'link_id' in data:
@@ -246,7 +251,9 @@ def update_link(id):
 @login_required
 @require_permission('links.delete')
 def delete_link(id):
-    link = Link.query.get_or_404(id)
+    link = db.session.get(Link, id)
+    if not link:
+        return jsonify({'error': 'Link not found'}), 404
     link_id = link.link_id
     db.session.delete(link)
     db.session.commit()
@@ -256,7 +263,9 @@ def delete_link(id):
 @login_required
 @require_permission('links.ping')
 def manual_ping(id):
-    link = Link.query.get_or_404(id)
+    link = db.session.get(Link, id)
+    if not link:
+        return jsonify({'error': 'Link not found'}), 404
     try:
         result = ping_single_link(link)
         return jsonify({
@@ -267,3 +276,58 @@ def manual_ping(id):
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 503
+
+
+@links_bp.route('/legs', methods=['GET'])
+@login_required
+@require_permission('links.view')
+def list_legs():
+    legs = db.session.query(Link.leg_name).distinct().order_by(Link.leg_name).all()
+    return jsonify({'legs': [row[0] for row in legs]}), 200
+
+
+@links_bp.route('/<int:id>/metrics', methods=['POST'])
+@login_required
+@require_permission('links.edit')
+def submit_metric(id):
+    link = db.session.get(Link, id)
+    if not link:
+        return jsonify({'error': 'Link not found'}), 404
+
+    data = request.get_json() or {}
+    snapshot = MetricSnapshot(
+        link_id=link.id,
+        fiber_util_pct=data.get('fiber_util_pct'),
+        fiber_capacity_mbps=data.get('fiber_capacity_mbps'),
+        mw_util_pct=data.get('mw_util_pct'),
+        mw_capacity_mbps=data.get('mw_capacity_mbps'),
+        source=data.get('source', 'manual')
+    )
+    db.session.add(snapshot)
+
+    status = LinkStatus.query.filter_by(link_id=link.id).first()
+    if status:
+        status.fiber_util_pct = data.get('fiber_util_pct', status.fiber_util_pct)
+        status.mw_util_pct = data.get('mw_util_pct', status.mw_util_pct)
+        status.last_metric_at = datetime.utcnow()
+
+        settings = db.session.get(AppSettings, 1)
+        warn_pct = settings.util_warning_threshold_pct if settings else 70.0
+        crit_pct = settings.util_critical_threshold_pct if settings else 90.0
+
+        mw_util = data.get('mw_util_pct')
+        if mw_util is not None:
+            if mw_util >= crit_pct:
+                send_event_notification('mw_util_high', f'Link {link.link_id} MW utilization at {mw_util:.1f}% (critical)', link_id=link.link_id, severity='critical')
+            elif mw_util >= warn_pct:
+                send_event_notification('mw_util_high', f'Link {link.link_id} MW utilization at {mw_util:.1f}% (warning)', link_id=link.link_id, severity='warning')
+
+        fiber_util = data.get('fiber_util_pct')
+        if fiber_util is not None:
+            if fiber_util >= crit_pct:
+                send_event_notification('fiber_util_near_cap', f'Link {link.link_id} fiber utilization at {fiber_util:.1f}% (near capacity)', link_id=link.link_id, severity='critical')
+            elif fiber_util >= warn_pct:
+                send_event_notification('fiber_util_high', f'Link {link.link_id} fiber utilization at {fiber_util:.1f}% (warning)', link_id=link.link_id, severity='warning')
+
+    db.session.commit()
+    return jsonify({'result': 'metric recorded'}), 201

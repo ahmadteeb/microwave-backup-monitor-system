@@ -14,7 +14,7 @@ let currentPage = 1;
 let totalPages = 1;
 let searchTimeout = null;
 
-// API Polling
+// API Fetch
 async function pollTable() {
   const status = statusFilter.value;
   const leg = legFilter.value;
@@ -29,16 +29,64 @@ async function pollTable() {
     const data = await window.fetchAPI(url);
     renderTable(data.links);
     updatePagination(data);
-    updateLegFilterOptions(data.links); // Simple dynamic extract for v1
   } catch (error) {
     console.error("Failed to fetch table data", error);
   }
 }
 
+// In-place row update from WebSocket event
+function handleLinkStatusUpdate(update) {
+  // Try to update the matching row in-place without a full re-fetch
+  const rows = tableBody.querySelectorAll('tr');
+  for (const row of rows) {
+    const linkIdCell = row.querySelector('td:first-child');
+    if (linkIdCell && linkIdCell.textContent === update.link_id) {
+      // Update status badge
+      const statusCell = row.querySelector('.status-badge');
+      if (statusCell) {
+        statusCell.className = `status-badge ${update.status.toLowerCase()}`;
+        statusCell.textContent = update.status;
+      }
+
+      // Update latency
+      const latencyCell = row.querySelector('td:nth-child(6)');
+      if (latencyCell) {
+        latencyCell.innerHTML = update.latency_ms !== null
+          ? `<span class="text-teal">${update.latency_ms}ms</span>`
+          : `<span class="text-muted">—</span>`;
+      }
+
+      // Update utilization bars
+      if (update.latest_metric) {
+        const fiberCell = row.querySelector('td:nth-child(3)');
+        const mwCell = row.querySelector('td:nth-child(4)');
+        if (fiberCell) {
+          const fiberPct = update.latest_metric.fiber_util_pct ?? 0;
+          fiberCell.innerHTML = createUtilBar(fiberPct, getBarColor(fiberPct));
+        }
+        if (mwCell) {
+          const mwPct = update.latest_metric.mw_util_pct ?? 0;
+          mwCell.innerHTML = createUtilBar(mwPct, getBarColor(mwPct));
+        }
+      }
+
+      // Flash animation for the updated row
+      row.style.transition = 'background 0.3s';
+      row.style.background = 'rgba(0, 212, 170, 0.08)';
+      setTimeout(() => {
+        row.style.background = '';
+      }, 1500);
+
+      return; // Found and updated
+    }
+  }
+  // If the link isn't on the current page, do nothing
+}
+
 // Rendering
 function renderTable(links) {
   tableBody.innerHTML = '';
-  
+
   if (links.length === 0) {
     tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No links found matching criteria.</td></tr>`;
     return;
@@ -46,21 +94,17 @@ function renderTable(links) {
 
   links.forEach(link => {
     const tr = document.createElement('tr');
-    
-    // Fiber Util Bar
+
     const fiberPct = link.latest_metric && link.latest_metric.fiber_util_pct !== null ? link.latest_metric.fiber_util_pct : 0;
     const fiberColor = getBarColor(fiberPct);
     const fiberBar = createUtilBar(fiberPct, fiberColor);
-    
-    // MW Util Bar
+
     const mwPct = link.latest_metric && link.latest_metric.mw_util_pct !== null ? link.latest_metric.mw_util_pct : 0;
     const mwColor = getBarColor(mwPct);
     const mwBar = createUtilBar(mwPct, mwColor);
 
-    // Status Badge
     const statusHtml = `<span class="status-badge ${link.status.toLowerCase()}">${link.status}</span>`;
-    
-    // Latency
+
     const latencyHtml = link.latency_ms !== null 
       ? `<span class="text-teal">${link.latency_ms}ms</span>` 
       : `<span class="text-muted">—</span>`;
@@ -72,11 +116,28 @@ function renderTable(links) {
       <td>${mwBar}</td>
       <td>${statusHtml}</td>
       <td class="text-mono">${latencyHtml}</td>
-      <td class="action-btns" style="text-align: right;">
-        <i class="fa-solid fa-pencil" onclick="window.openEditModal(${link.id})" title="Edit Link"></i>
-        <i class="fa-solid fa-trash-can" onclick="window.deleteLink(${link.id}, '${link.link_id}')" title="Delete Link"></i>
-      </td>
     `;
+
+    const actionCell = document.createElement('td');
+    actionCell.className = 'action-btns';
+    actionCell.style.textAlign = 'right';
+
+    const editBtn = document.createElement('i');
+    editBtn.className = 'fa-solid fa-pencil';
+    editBtn.title = 'Edit Link';
+    editBtn.style.cursor = 'pointer';
+    editBtn.addEventListener('click', () => window.openEditModal(link.id));
+
+    const deleteBtn = document.createElement('i');
+    deleteBtn.className = 'fa-solid fa-trash-can';
+    deleteBtn.title = 'Delete Link';
+    deleteBtn.style.cursor = 'pointer';
+    deleteBtn.addEventListener('click', () => window.deleteLink(link.id, link.link_id));
+
+    actionCell.appendChild(editBtn);
+    actionCell.appendChild(deleteBtn);
+    tr.appendChild(actionCell);
+
     tableBody.appendChild(tr);
   });
 }
@@ -109,25 +170,18 @@ function updatePagination(data) {
   btnNextPage.disabled = currentPage >= totalPages;
 }
 
-// Very basic distinct leg extraction from current page. 
-// Ideally, backend provides a /api/legs endpoint.
-const knownLegs = new Set();
-function updateLegFilterOptions(links) {
-  let changed = false;
-  links.forEach(l => {
-    if (!knownLegs.has(l.leg_name)) {
-      knownLegs.add(l.leg_name);
-      changed = true;
-    }
-  });
-  
-  if (changed) {
-    const currentVal = legFilter.value;
-    legFilter.innerHTML = '<option value="ALL_REGIONS">ALL_REGIONS</option>';
-    Array.from(knownLegs).sort().forEach(leg => {
-      legFilter.innerHTML += `<option value="${leg}">${leg}</option>`;
+async function loadLegOptions() {
+  try {
+    const data = await window.fetchAPI('/api/links/legs');
+    legFilter.innerHTML = '<option value="ALL_REGIONS">All regions</option>';
+    (data.legs || []).forEach((leg) => {
+      const option = document.createElement('option');
+      option.value = leg;
+      option.textContent = leg;
+      legFilter.appendChild(option);
     });
-    legFilter.value = currentVal;
+  } catch (e) {
+    console.warn('Failed to load leg options', e);
   }
 }
 
@@ -183,11 +237,14 @@ btnNextPage.addEventListener('click', () => {
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
-  // Wait a tiny bit to ensure dashboard.js defines fetchAPI
-  setTimeout(() => {
-    pollTable();
-    setInterval(pollTable, 30000);
-    // Expose pollTable for modal.js to call after CRUD
-    window.refreshTable = pollTable;
-  }, 100);
+  loadLegOptions();
+  pollTable();
+
+  // Listen for real-time link status updates via WebSocket
+  window.addEventListener('ws:link_status_update', (event) => {
+    handleLinkStatusUpdate(event.detail);
+  });
+
+  // Expose pollTable for modal.js to call after CRUD
+  window.refreshTable = pollTable;
 });

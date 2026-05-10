@@ -274,7 +274,7 @@ def complete_setup():
             )
             new_session.add(jumpserver)
 
-        app_settings = new_session.query(AppSettings).get(1)
+        app_settings = new_session.get(AppSettings, 1)
         if not app_settings:
             app_settings = AppSettings(id=1)
             new_session.add(app_settings)
@@ -302,7 +302,7 @@ def complete_setup():
         new_session.close()
 
     # Keep the currently running app aware that setup is complete, even before a restart.
-    current_setup_state = SetupState.query.get(1)
+    current_setup_state = db.session.get(SetupState, 1)
     if current_setup_state:
         if not current_setup_state.is_complete:
             current_setup_state.is_complete = True

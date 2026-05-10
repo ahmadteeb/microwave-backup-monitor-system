@@ -1,6 +1,6 @@
 from functools import wraps
 from flask import session, request, redirect, jsonify
-from app.models import UserPermission, User
+from app.models import db, UserPermission, User
 
 ROLE_DEFAULTS = {
     'admin': {
@@ -34,7 +34,7 @@ ROLE_DEFAULTS = {
         'links.delete': False,
         'links.ping': True,
         'links.export': True,
-        'users.view': False,
+        'users.view': True,
         'users.add': False,
         'users.edit': False,
         'users.delete': False,
@@ -44,7 +44,7 @@ ROLE_DEFAULTS = {
         'config.edit_smtp': False,
         'config.edit_jumpserver': False,
         'config.edit_app': False,
-        'logs.view_system': False,
+        'logs.view_system': True,
         'logs.view_ping': True,
         'logs.export': True,
         'notifications.view_own': True,
@@ -84,7 +84,7 @@ def has_permission(user_id, permission_key):
     override = UserPermission.query.filter_by(user_id=user_id, permission_key=permission_key).first()
     if override is not None:
         return override.is_granted
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         return False
     return ROLE_DEFAULTS.get(user.role, {}).get(permission_key, False)

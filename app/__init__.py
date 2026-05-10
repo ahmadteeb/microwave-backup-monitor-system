@@ -2,10 +2,9 @@ import os
 from datetime import datetime, timedelta
 from flask import Flask, send_from_directory, session, redirect, jsonify, request
 
-APP_START_TIME = datetime.utcnow()
 from app.config import Config
-from app.extensions import db, bcrypt
-from app.models import SetupState, AppSettings
+from app.extensions import db, bcrypt, socketio
+from app.models import SetupState, AppSettings, User
 
 
 def create_app(config_class=Config):
@@ -14,15 +13,19 @@ def create_app(config_class=Config):
 
     db.init_app(app)
     bcrypt.init_app(app)
+    socketio.init_app(app, cors_allowed_origins="*", async_mode='threading')
+
+    global APP_START_TIME
+    APP_START_TIME = datetime.utcnow()
 
     with app.app_context():
         db.create_all()
-        if not SetupState.query.get(1):
+        if not db.session.get(SetupState, 1):
             setup_state = SetupState(id=1, is_complete=False, completed_at=None)
             db.session.add(setup_state)
             db.session.commit()
 
-        if not AppSettings.query.get(1):
+        if not db.session.get(AppSettings, 1):
             settings = AppSettings(id=1)
             db.session.add(settings)
             db.session.commit()
@@ -48,9 +51,6 @@ def create_app(config_class=Config):
     from app.routes.profile import profile_bp
     app.register_blueprint(profile_bp)
 
-    from app.routes.jumpserver import jumpserver_bp
-    app.register_blueprint(jumpserver_bp)
-
     from app.routes.links import links_bp
     app.register_blueprint(links_bp)
 
@@ -60,8 +60,14 @@ def create_app(config_class=Config):
     from app.routes.pinglog import pinglog_bp
     app.register_blueprint(pinglog_bp)
 
-    from app.services.scheduler import init_scheduler
-    app.scheduler = init_scheduler(app)
+    # SocketIO event handlers
+    @socketio.on('connect')
+    def handle_connect():
+        pass
+
+    @socketio.on('disconnect')
+    def handle_disconnect():
+        pass
 
     def is_setup_allowed(path):
         allowed_prefixes = (
@@ -81,7 +87,7 @@ def create_app(config_class=Config):
     @app.before_request
     def global_before_request():
         path = request.path
-        setup_state = SetupState.query.get(1)
+        setup_state = db.session.get(SetupState, 1)
         
         is_setup_complete = setup_state and setup_state.is_complete
         if not is_setup_complete and _secrets_file_exists():
@@ -106,7 +112,8 @@ def create_app(config_class=Config):
                 '/js/',
                 '/frontend/',
                 '/favicon.ico',
-                '/api/auth/login'
+                '/api/auth/login',
+                '/socket.io/'
             )
             if any(path.startswith(prefix) for prefix in public_paths):
                 return
@@ -126,7 +133,14 @@ def create_app(config_class=Config):
                 return jsonify({'error': 'Authentication required'}), 401
             return redirect('/login')
 
-        app_settings = AppSettings.query.get(1)
+        user = db.session.get(User, user_id)
+        if user and user.force_password_change:
+            allowed_force_change = ('/api/auth/change-password', '/api/auth/logout', '/api/auth/me')
+            if not any(path.startswith(p) for p in allowed_force_change):
+                if path.startswith('/api/'):
+                    return jsonify({'error': 'Password change required', 'code': 'FORCE_PASSWORD_CHANGE'}), 403
+
+        app_settings = db.session.get(AppSettings, 1)
         timeout_minutes = app_settings.session_timeout_minutes if app_settings else 480
         if datetime.utcnow() - logged_in_at > timedelta(minutes=timeout_minutes):
             session.clear()

@@ -1,7 +1,7 @@
 import smtplib
 from datetime import datetime
 from email.message import EmailMessage
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, current_app
 from app.models import db, SmtpConfig, JumpServer, AppSettings, User
 from app.services.crypto_service import encrypt, decrypt
 from app.services.ssh_service import SSHService
@@ -13,7 +13,7 @@ settings_bp = Blueprint('settings', __name__, url_prefix='/api/settings')
 
 def _current_user():
     user_id = session.get('user_id')
-    return User.query.get(user_id) if user_id else None
+    return db.session.get(User, user_id) if user_id else None
 
 
 def _mask_password(value):
@@ -54,7 +54,7 @@ def _build_jump_response(js):
 @login_required
 @require_permission('config.view')
 def get_smtp():
-    config = SmtpConfig.query.get(1)
+    config = db.session.get(SmtpConfig, 1)
     if not config:
         return jsonify({'smtp': None}), 200
     return jsonify({'smtp': _build_smtp_response(config)}), 200
@@ -65,7 +65,7 @@ def get_smtp():
 @require_permission('config.edit_smtp')
 def update_smtp():
     data = request.get_json() or {}
-    config = SmtpConfig.query.get(1)
+    config = db.session.get(SmtpConfig, 1)
     enabled = bool(data.get('enabled', True))
 
     if not enabled:
@@ -117,7 +117,7 @@ def update_smtp():
 @login_required
 @require_permission('config.edit_smtp')
 def test_smtp():
-    config = SmtpConfig.query.get(1)
+    config = db.session.get(SmtpConfig, 1)
     if not config:
         return jsonify({'error': 'SMTP not configured'}), 400
     user = _current_user()
@@ -171,7 +171,7 @@ def get_jumpserver():
 def update_jumpserver():
     data = request.get_json() or {}
     active = bool(data.get('active', True))
-    active_js = JumpServer.query.filter_by(active=True).first()
+    active_js = db.session.query(JumpServer).filter_by(active=True).first()
 
     if not active:
         if active_js:
@@ -188,11 +188,19 @@ def update_jumpserver():
         active_js.active = False
         db.session.commit()
 
+    password = data.get('password')
+    if password and password != '••••••••':
+        encrypted_password = encrypt(password)
+    elif active_js:
+        encrypted_password = active_js.password_encrypted
+    else:
+        encrypted_password = None
+
     js = JumpServer(
         host=data['host'],
         port=int(data.get('port', 22)),
         username=data['username'],
-        password_encrypted=encrypt(data.get('password', '')) if data.get('password') and data.get('password') != '••••••••' else (active_js.password_encrypted if active_js else None),
+        password_encrypted=encrypted_password,
         active=True,
         label=data.get('label'),
         updated_by_id=session.get('user_id')
@@ -232,7 +240,7 @@ def test_jumpserver():
 @login_required
 @require_permission('config.view')
 def get_app_settings():
-    settings = AppSettings.query.get(1)
+    settings = db.session.get(AppSettings, 1)
     if not settings:
         return jsonify({'app': None}), 200
     return jsonify({'app': {
@@ -251,7 +259,7 @@ def get_app_settings():
 @require_permission('config.edit_app')
 def update_app_settings():
     data = request.get_json() or {}
-    settings = AppSettings.query.get(1)
+    settings = db.session.get(AppSettings, 1)
     if not settings:
         settings = AppSettings(id=1)
         db.session.add(settings)
@@ -268,4 +276,14 @@ def update_app_settings():
     settings.updated_at = datetime.utcnow()
     db.session.commit()
     write_log('config', 'app_settings_updated', session.get('username', 'system'), 'app_settings', {'changed': list(changed.keys())})
+
+    if 'ping_interval_seconds' in changed:
+        scheduler = getattr(current_app, 'scheduler', None)
+        if scheduler:
+            new_interval = settings.ping_interval_seconds
+            try:
+                scheduler.reschedule_job('ping_cycle', trigger='interval', seconds=new_interval)
+            except Exception:
+                write_log('config', 'scheduler_reschedule_failed', session.get('username', 'system'), 'app_settings', {'interval': new_interval})
+
     return jsonify({'result': 'app settings updated'}), 200

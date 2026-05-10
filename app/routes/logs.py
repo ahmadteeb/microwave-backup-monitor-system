@@ -20,7 +20,7 @@ def _apply_filters(query, model):
         if actor:
             query = query.filter(SystemLog.actor.ilike(f'%{actor}%'))
         if search:
-            query = query.filter(SystemLog.detail.cast(db.String).ilike(f'%{search}%'))
+            query = query.filter(SystemLog.detail.ilike(f'%{search}%'))
         if date_from:
             query = query.filter(SystemLog.timestamp >= date_from)
         if date_to:

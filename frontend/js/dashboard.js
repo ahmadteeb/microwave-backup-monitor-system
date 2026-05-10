@@ -1,18 +1,3 @@
-// Shared API Helper
-async function fetchAPI(url, options = {}) {
-  try {
-    const response = await fetch(url, options);
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP error ${response.status}`);
-    }
-    return await response.json();
-  } catch (error) {
-    console.error(`API Error on ${url}:`, error);
-    throw error;
-  }
-}
-
 // DOM Elements
 const kpiTotal = document.getElementById('kpi-total');
 const kpiReachable = document.getElementById('kpi-reachable');
@@ -23,8 +8,7 @@ const nextCheckVal = document.getElementById('next-check-val');
 
 // Global state for polling config
 let PING_INTERVAL_SECONDS = 60; // fallback when backend config is unavailable
-let nextCheckCountdown = PING_INTERVAL_SECONDS;
-let pollIntervalId = null;
+let lastPollAt = Date.now();
 
 async function loadPollingConfig() {
   try {
@@ -32,38 +16,26 @@ async function loadPollingConfig() {
     const interval = parseInt(settings.app?.ping_interval_seconds, 10);
     if (!Number.isNaN(interval) && interval > 0) {
       PING_INTERVAL_SECONDS = interval;
-      nextCheckCountdown = PING_INTERVAL_SECONDS;
     }
   } catch (error) {
     console.warn('Unable to load polling configuration:', error);
   }
 }
 
-function schedulePolling() {
-  if (pollIntervalId) {
-    clearInterval(pollIntervalId);
-  }
-  pollIntervalId = setInterval(pollKPIs, PING_INTERVAL_SECONDS * 1000);
+// KPI Update (called from WebSocket or initial fetch)
+function handleKPIUpdate(data) {
+  updateKPIValues(data);
+  updateHealthBadge(data, null);
+  lastPollAt = Date.now();
 }
 
-function applyPollingConfig(intervalSeconds) {
-  if (!Number.isNaN(intervalSeconds) && intervalSeconds > 0) {
-    PING_INTERVAL_SECONDS = intervalSeconds;
-    nextCheckCountdown = PING_INTERVAL_SECONDS;
-    schedulePolling();
-  }
-}
-
-// KPI Polling
-async function pollKPIs() {
+// Initial fetch (on page load, before WebSocket is ready)
+async function fetchKPIs() {
   try {
-    const data = await fetchAPI('/api/dashboard/kpi');
-    updateKPIValues(data);
-    updateHealthBadge(data, null);
+    const data = await window.fetchAPI('/api/dashboard/kpi');
+    handleKPIUpdate(data);
   } catch (error) {
     updateHealthBadge(null, error);
-  } finally {
-    nextCheckCountdown = PING_INTERVAL_SECONDS;
   }
 }
 
@@ -83,11 +55,11 @@ function updateKPIValues(data) {
   animateValue(kpiReachable, data.mw_reachable);
   animateValue(kpiUnreachable, data.mw_unreachable);
   animateValue(kpiHigh, data.high_utilization);
-  if (data.uptime_display) {
-    const uptimeVal = document.getElementById('uptime-val');
-    if (uptimeVal) {
-      uptimeVal.textContent = data.uptime_display;
-    }
+  const uptimeVal = document.getElementById('uptime-val');
+  if (uptimeVal) {
+    uptimeVal.textContent = data.link_availability_24h !== null && data.link_availability_24h !== undefined
+      ? `${data.link_availability_24h}%`
+      : (data.uptime_display || 'N/A');
   }
 }
 
@@ -111,30 +83,32 @@ function updateHealthBadge(data, error) {
 
 // Countdown Timer
 function tickCountdown() {
-  nextCheckCountdown--;
-  if (nextCheckCountdown < 0) {
-    nextCheckCountdown = PING_INTERVAL_SECONDS;
-  }
-  
-  const m = Math.floor(nextCheckCountdown / 60).toString().padStart(2, '0');
-  const s = (nextCheckCountdown % 60).toString().padStart(2, '0');
-  nextCheckVal.textContent = `${m}:${s}`;
+  const elapsed = Math.floor((Date.now() - lastPollAt) / 1000);
+  const remaining = Math.max(0, PING_INTERVAL_SECONDS - elapsed);
+  const m = Math.floor(remaining / 60).toString().padStart(2, '0');
+  const s = (remaining % 60).toString().padStart(2, '0');
+  if (nextCheckVal) nextCheckVal.textContent = `${m}:${s}`;
 }
 
 // Initialization
 document.addEventListener('DOMContentLoaded', async () => {
   await loadPollingConfig();
-  pollKPIs();
-  schedulePolling();
+  await fetchKPIs();
   setInterval(tickCountdown, 1000);
-  
-  // Make fetchAPI globally available for other scripts
-  window.fetchAPI = fetchAPI;
 
+  // Listen for real-time KPI updates via WebSocket
+  window.addEventListener('ws:kpi_update', (event) => {
+    handleKPIUpdate(event.detail);
+  });
+
+  // Listen for settings changes
   window.addEventListener('appSettingsUpdated', (event) => {
     const interval = event?.detail?.settings?.app?.ping_interval_seconds;
     if (interval) {
-      applyPollingConfig(interval);
+      const parsed = parseInt(interval, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        PING_INTERVAL_SECONDS = parsed;
+      }
     }
   });
 });

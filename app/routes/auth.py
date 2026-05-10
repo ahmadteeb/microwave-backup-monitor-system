@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, session
+from sqlalchemy import func
 from app.models import db, User, UserPermission
 from app.services.log_service import write_log
 from app.extensions import bcrypt
@@ -10,7 +11,8 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
 def _build_permissions(user_id):
     permissions = {}
-    role = User.query.get(user_id).role if user_id else 'viewer'
+    user = db.session.get(User, user_id) if user_id else None
+    role = user.role if user else 'viewer'
     defaults = ROLE_DEFAULTS.get(role, {})
     for key in defaults:
         permissions[key] = has_permission(user_id, key)
@@ -37,7 +39,7 @@ def get_me():
     if not user_id:
         return jsonify({'error': 'Authentication required'}), 401
 
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         session.clear()
         return jsonify({'error': 'Authentication required'}), 401
@@ -48,6 +50,7 @@ def get_me():
         'full_name': user.full_name,
         'email': user.email,
         'role': user.role,
+        'force_password_change': user.force_password_change,
         'permissions': _build_permissions(user.id)
     }), 200
 
@@ -61,7 +64,7 @@ def login():
     if not username or not password:
         return jsonify({'error': 'Invalid username or password'}), 401
 
-    user = User.query.filter_by(username=username).first()
+    user = User.query.filter(func.lower(User.username) == username).first()
     if not user or not user.is_active:
         write_log('auth', 'login_failed', 'anonymous', username, {'ip': request.remote_addr})
         return jsonify({'error': 'Invalid username or password'}), 401
@@ -115,7 +118,7 @@ def change_password():
     if not user_id:
         return jsonify({'error': 'Authentication required'}), 401
 
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         session.clear()
         return jsonify({'error': 'Authentication required'}), 401

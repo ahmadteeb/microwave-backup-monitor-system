@@ -28,12 +28,18 @@ def get_kpis():
     uptime_parts.append(f"{minutes}m")
     uptime_display = ' '.join(uptime_parts)
 
+    since = datetime.utcnow() - timedelta(hours=24)
+    total_pings = PingResult.query.filter(PingResult.timestamp >= since).count()
+    ok_pings = PingResult.query.filter(PingResult.timestamp >= since, PingResult.reachable.is_(True)).count()
+    availability_pct = round((ok_pings / total_pings * 100), 1) if total_pings > 0 else None
+
     return jsonify({
         "total_links": total_links,
         "mw_reachable": mw_reachable,
         "mw_unreachable": mw_unreachable,
         "high_utilization": high_utilization,
         "uptime_display": uptime_display,
+        "link_availability_24h": availability_pct,
         "last_updated": datetime.utcnow().isoformat() + "Z"
     }), 200
 

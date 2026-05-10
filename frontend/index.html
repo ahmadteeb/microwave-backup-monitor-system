@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/css/main.css">
   <link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js" defer></script>
 </head>
 <body>
 
@@ -18,7 +19,7 @@
       <div class="sys-health" id="sys-health-badge">System Healthy</div>
     </div>
     <div class="topbar-right">
-      <div class="text-mono">Uptime: <span id="uptime-val" class="text-teal">99.99%</span></div>
+      <div class="text-mono">Link Availability (24h): <span id="uptime-val" class="text-teal">99.99%</span></div>
       <div class="text-mono">Next check: <span id="next-check-val">00:00</span></div>
       <div class="topbar-icons">
         <div class="icon-button" id="notifications-button">
@@ -62,97 +63,92 @@
       </ul>
     </div>
 
-    <div class="ping-log-container">
-      <div class="sidebar-section" style="margin-bottom: 8px;">
-        <div class="filter-label" style="display: flex; justify-content: space-between;">
-          Ping activity <span style="color: var(--accent-teal);">●</span>
-        </div>
-      </div>
-      <div class="ping-log-scroll" id="ping-log-list">
-        <!-- JS inserts entries here -->
-      </div>
-    </div>
-
   </aside>
 
   <!-- Main Content -->
   <main class="main-content">
-    <div id="dashboard-section">
+    <div id="dashboard-section" class="dashboard-layout">
       <!-- KPI Row -->
       <div class="kpi-row">
-      <div class="kpi-card teal">
-        <div class="kpi-label">TOTAL LINKS</div>
-        <div class="kpi-value" id="kpi-total">0</div>
-        <i class="fa-solid fa-layer-group kpi-icon"></i>
-      </div>
-      <div class="kpi-card green">
-        <div class="kpi-label">MW REACHABLE</div>
-        <div class="kpi-value text-teal" id="kpi-reachable" style="color: var(--status-up);">0</div>
-        <i class="fa-solid fa-link kpi-icon"></i>
-      </div>
-      <div class="kpi-card red">
-        <div class="kpi-label">MW UNREACHABLE</div>
-        <div class="kpi-value" id="kpi-unreachable" style="color: var(--status-down);">0</div>
-        <i class="fa-solid fa-link-slash kpi-icon"></i>
-      </div>
-      <div class="kpi-card amber">
-        <div class="kpi-label">HIGH UTILIZATION</div>
-        <div class="kpi-value" id="kpi-high" style="color: var(--status-warning);">0</div>
-        <i class="fa-solid fa-triangle-exclamation kpi-icon"></i>
-      </div>
-    </div>
-
-    <!-- Table Section -->
-    <div class="table-container">
-      <div class="table-header">
-        <div class="table-title">
-          ACTIVE LINK INVENTORY <span class="table-count-badge" id="table-count">0 TOTAL</span>
+        <div class="kpi-card teal">
+          <div class="kpi-label">TOTAL LINKS</div>
+          <div class="kpi-value" id="kpi-total">0</div>
+          <i class="fa-solid fa-layer-group kpi-icon"></i>
         </div>
-        <div class="table-actions">
-          <div class="table-filters">
-            <input type="text" id="search-input" class="sidebar-search" placeholder="SEARCH LINK ID OR LEG..." style="font-family: var(--font-body), 'Font Awesome 6 Free'; font-weight: 900; width: 240px;">
-            <select id="status-filter" class="filter-select">
-              <option value="ALL_OPERATIONAL">All statuses</option>
-              <option value="UP">Up</option>
-              <option value="DOWN">Down</option>
-              <option value="TIMEOUT">Timeout</option>
-              <option value="HIGH">High</option>
-            </select>
-            <select id="leg-filter" class="filter-select">
-              <option value="ALL_REGIONS">All regions</option>
-            </select>
+        <div class="kpi-card green">
+          <div class="kpi-label">MW REACHABLE</div>
+          <div class="kpi-value text-teal" id="kpi-reachable" style="color: var(--status-up);">0</div>
+          <i class="fa-solid fa-link kpi-icon"></i>
+        </div>
+        <div class="kpi-card red">
+          <div class="kpi-label">MW UNREACHABLE</div>
+          <div class="kpi-value" id="kpi-unreachable" style="color: var(--status-down);">0</div>
+          <i class="fa-solid fa-link-slash kpi-icon"></i>
+        </div>
+        <div class="kpi-card amber">
+          <div class="kpi-label">HIGH UTILIZATION</div>
+          <div class="kpi-value" id="kpi-high" style="color: var(--status-warning);">0</div>
+          <i class="fa-solid fa-triangle-exclamation kpi-icon"></i>
+        </div>
+      </div>
+
+      <!-- Table Section - Directly under stats, row scrollable -->
+      <div class="table-container">
+        <div class="table-header">
+          <div class="table-title">
+            ACTIVE LINK INVENTORY <span class="table-count-badge" id="table-count">0 TOTAL</span>
           </div>
-          <button class="btn-icon" id="btn-table-download" title="Download inventory CSV"><i class="fa-solid fa-download"></i></button>
+          <div class="table-actions">
+            <div class="table-filters">
+              <input type="text" id="search-input" class="sidebar-search" placeholder="SEARCH LINK ID OR LEG..." style="font-family: var(--font-body), 'Font Awesome 6 Free'; font-weight: 900; width: 240px;">
+              <select id="status-filter" class="filter-select">
+                <option value="ALL_OPERATIONAL">All statuses</option>
+                <option value="UP">Up</option>
+                <option value="DOWN">Down</option>
+                <option value="TIMEOUT">Timeout</option>
+                <option value="HIGH">High</option>
+              </select>
+              <select id="leg-filter" class="filter-select">
+                <option value="ALL_REGIONS">All regions</option>
+              </select>
+            </div>
+            <div class="table-action-buttons">
+              <button class="btn-primary" id="btn-add-link" title="Add new link"><i class="fa-solid fa-plus"></i> ADD LINK</button>
+              <button class="btn-icon" id="btn-table-download" title="Download inventory CSV"><i class="fa-solid fa-download"></i></button>
+            </div>
+          </div>
         </div>
-      </div>
-      
-      <table>
-        <thead>
-          <tr>
-            <th>LINK ID</th>
-            <th>LEG</th>
-            <th>FIBER UTIL</th>
-            <th>MW UTIL</th>
-            <th>STATUS</th>
-            <th>LATENCY</th>
-            <th style="text-align: right;">ACTIONS</th>
-          </tr>
-        </thead>
-        <tbody id="link-table-body">
-          <!-- JS inserts rows here -->
-        </tbody>
-      </table>
+        
+        <div class="table-scroll-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>LINK ID</th>
+                <th>LEG</th>
+                <th>FIBER UTIL</th>
+                <th>MW UTIL</th>
+                <th>STATUS</th>
+                <th>LATENCY</th>
+                <th style="text-align: right;">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="link-table-body">
+              <!-- JS inserts rows here -->
+            </tbody>
+          </table>
+        </div>
 
-      <div class="table-footer">
-        <div class="legend">
-          <div class="legend-item"><div class="legend-dot" style="background: var(--bar-optimal);"></div> OPTIMAL &lt; 70%</div>
-          <div class="legend-item"><div class="legend-dot" style="background: var(--bar-warning);"></div> WARNING 70-90%</div>
-          <div class="legend-item"><div class="legend-dot" style="background: var(--bar-critical);"></div> CRITICAL &gt; 90%</div>
-        </div>
-        <div class="pagination">
-          <span id="page-info">PAGE 1 OF 1</span>
-          <button class="page-btn" id="btn-prev-page"><i class="fa-solid fa-chevron-left"></i></button>
-          <button class="page-btn" id="btn-next-page"><i class="fa-solid fa-chevron-right"></i></button>
+        <div class="table-footer">
+          <div class="legend">
+            <div class="legend-item"><div class="legend-dot" style="background: var(--bar-optimal);"></div> OPTIMAL &lt; 70%</div>
+            <div class="legend-item"><div class="legend-dot" style="background: var(--bar-warning);"></div> WARNING 70-90%</div>
+            <div class="legend-item"><div class="legend-dot" style="background: var(--bar-critical);"></div> CRITICAL &gt; 90%</div>
+          </div>
+          <div class="pagination">
+            <span id="page-info">PAGE 1 OF 1</span>
+            <button class="page-btn" id="btn-prev-page"><i class="fa-solid fa-chevron-left"></i></button>
+            <button class="page-btn" id="btn-next-page"><i class="fa-solid fa-chevron-right"></i></button>
+          </div>
         </div>
       </div>
     </div>
@@ -245,6 +241,25 @@
             <i class="fa-solid fa-circle-exclamation hidden" id="ip-error-icon" style="position: absolute; right: 12px; top: 12px; color: var(--status-down);"></i>
           </div>
           <div class="form-helper" id="modal-ip-helper">Required field: Provide a valid IPv4 address for link telemetry.</div>
+        </div>
+        <div class="modal-section">
+          <div class="section-label">RECORD UTILIZATION</div>
+          <div class="form-row">
+            <label>Fiber Util %</label>
+            <input type="number" id="fiber-util-input" class="form-control text-mono" min="0" max="100" step="0.1" placeholder="e.g. 65.5">
+          </div>
+          <div class="form-row">
+            <label>MW Util %</label>
+            <input type="number" id="mw-util-input" class="form-control text-mono" min="0" max="100" step="0.1" placeholder="e.g. 42.0">
+          </div>
+          <div id="metric-message" class="form-helper" style="color: var(--status-down);"></div>
+          <button class="btn btn-sm btn-teal" type="button" id="submit-metric-btn">Record Utilization</button>
+        </div>
+        <div class="modal-section">
+          <div class="section-label">PING HISTORY</div>
+          <div class="chart-panel" style="height: 220px;">
+            <canvas id="ping-history-chart"></canvas>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -465,11 +480,13 @@
     </div>
   </div>
 
+  <script src="/js/api.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.min.js" defer></script>
   <script src="/js/dialog.js" defer></script>
   <script src="/js/dashboard.js" defer></script>
   <script src="/js/table.js" defer></script>
-  <script src="/js/pinglog.js" defer></script>
   <script src="/js/modal.js" defer></script>
+  <script src="/js/charts.js" defer></script>
   <script src="/js/notifications.js" defer></script>
   <script src="/js/settings.js" defer></script>
   <script src="/js/user.js" defer></script>

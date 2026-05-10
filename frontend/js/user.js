@@ -62,6 +62,7 @@ function showChangePasswordModal(required = false) {
   if (!changePasswordModal) return;
   forcePasswordChangeRequired = required;
   changePasswordModal.classList.remove('hidden');
+  changePasswordModal.classList.add('active');
   if (forcePasswordChangeRequired) {
     btnCloseChangePassword?.classList.add('hidden');
     btnCancelChangePassword?.classList.add('hidden');
@@ -76,6 +77,7 @@ function showChangePasswordModal(required = false) {
 function hideChangePasswordModal() {
   if (forcePasswordChangeRequired) return;
   if (!changePasswordModal) return;
+  changePasswordModal.classList.remove('active');
   changePasswordModal.classList.add('hidden');
 }
 
@@ -206,7 +208,7 @@ async function loadUsers() {
         <td>${user.role}</td>
         <td>${user.status}</td>
         <td>${user.last_login_at ? new Date(user.last_login_at).toLocaleString() : 'Never'}</td>
-        <td>${user.is_active ? 'Active' : 'Inactive'}</td>
+        <td>—</td>
       </tr>
     `).join('');
   } catch (error) {

@@ -8,7 +8,7 @@ notifications_bp = Blueprint('notifications', __name__, url_prefix='/api/notific
 
 def _current_user():
     user_id = session.get('user_id')
-    return User.query.get(user_id) if user_id else None
+    return db.session.get(User, user_id) if user_id else None
 
 
 @notifications_bp.route('', methods=['GET'])

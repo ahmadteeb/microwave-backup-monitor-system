@@ -88,7 +88,9 @@ def create_user():
 @login_required
 @require_permission('users.view')
 def get_user(id):
-    user = User.query.get_or_404(id)
+    user = db.session.get(User, id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     return jsonify({'user': _serialize_user(user)}), 200
 
 
@@ -96,7 +98,9 @@ def get_user(id):
 @login_required
 @require_permission('users.edit')
 def update_user(id):
-    user = User.query.get_or_404(id)
+    user = db.session.get(User, id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     data = request.get_json() or {}
     updates = {}
 
@@ -128,7 +132,9 @@ def update_user(id):
 @login_required
 @require_permission('users.delete')
 def delete_user(id):
-    user = User.query.get_or_404(id)
+    user = db.session.get(User, id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     if session.get('user_id') == user.id:
         return jsonify({'error': 'Cannot delete own account'}), 400
     db.session.delete(user)
@@ -141,7 +147,9 @@ def delete_user(id):
 @login_required
 @require_permission('users.reset_password')
 def reset_password(id):
-    user = User.query.get_or_404(id)
+    user = db.session.get(User, id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     data = request.get_json() or {}
     new_password = data.get('new_password', '')
     confirm_password = data.get('confirm_password', '')
@@ -161,7 +169,9 @@ def reset_password(id):
 @login_required
 @require_permission('users.edit')
 def unlock_user(id):
-    user = User.query.get_or_404(id)
+    user = db.session.get(User, id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     user.is_locked = False
     user.locked_until = None
     user.failed_login_count = 0
@@ -174,7 +184,9 @@ def unlock_user(id):
 @login_required
 @require_permission('users.manage_permissions')
 def get_user_permissions(id):
-    user = User.query.get_or_404(id)
+    user = db.session.get(User, id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     defaults = ROLE_DEFAULTS.get(user.role, {})
     overrides = {
         perm.permission_key: perm.is_granted
@@ -187,7 +199,9 @@ def get_user_permissions(id):
 @login_required
 @require_permission('users.manage_permissions')
 def update_user_permissions(id):
-    user = User.query.get_or_404(id)
+    user = db.session.get(User, id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     data = request.get_json() or {}
     overrides = data.get('overrides', {})
     if not isinstance(overrides, dict):
@@ -218,7 +232,9 @@ def update_user_permissions(id):
 @login_required
 @require_permission('notifications.manage_all')
 def get_user_subscriptions(id):
-    user = User.query.get_or_404(id)
+    user = db.session.get(User, id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     records = NotificationSubscription.query.filter_by(user_id=user.id).all()
     return jsonify({'subscriptions': [
         {'event_key': r.event_key, 'is_subscribed': r.is_subscribed}
@@ -230,7 +246,9 @@ def get_user_subscriptions(id):
 @login_required
 @require_permission('notifications.manage_all')
 def update_user_subscriptions(id):
-    user = User.query.get_or_404(id)
+    user = db.session.get(User, id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     data = request.get_json() or {}
     subs = data.get('subscriptions', [])
     if not isinstance(subs, list):
