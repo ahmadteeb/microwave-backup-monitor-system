@@ -1,5 +1,7 @@
 // DOM Elements
 const notificationsBtn = document.getElementById('notifications-btn');
+const notificationsButton = document.getElementById('notifications-button');
+const notificationsCount = document.getElementById('notifications-count');
 const notificationsModal = document.getElementById('notifications-modal');
 const btnCloseNotifications = document.getElementById('btn-close-notifications');
 const notificationsList = document.getElementById('notifications-list');
@@ -11,9 +13,25 @@ async function loadNotifications() {
   try {
     const data = await window.fetchAPI('/api/notifications');
     renderNotifications(data.notifications);
+    await loadUnreadCount();
   } catch (error) {
     console.error("Failed to load notifications", error);
   }
+}
+
+async function loadUnreadCount() {
+  try {
+    const data = await window.fetchAPI('/api/notifications/unread-count');
+    updateNotificationsCount(data.unread_count || 0);
+  } catch (error) {
+    console.error('Failed to load notification count', error);
+  }
+}
+
+function updateNotificationsCount(count) {
+  if (!notificationsCount) return;
+  notificationsCount.textContent = count > 0 ? count : '';
+  notificationsCount.classList.toggle('active', count > 0);
 }
 
 // Render notifications
@@ -89,7 +107,7 @@ async function markAsRead(notificationId) {
     await window.fetchAPI(`/api/notifications/${notificationId}/read`, {
       method: 'POST'
     });
-    loadNotifications();
+    await loadNotifications();
   } catch (error) {
     console.error("Failed to mark notification as read", error);
   }
@@ -102,7 +120,7 @@ async function markAllRead() {
     await window.fetchAPI('/api/notifications/read-all', {
       method: 'POST'
     });
-    loadNotifications();
+    await loadNotifications();
     window.showToast('All notifications marked as read', 'success');
   } catch (error) {
     console.error("Failed to mark all notifications as read", error);
@@ -128,7 +146,7 @@ async function clearNotifications() {
       await window.fetchAPI('/api/notifications/clear', {
         method: 'POST'
       });
-      loadNotifications();
+      await loadNotifications();
       window.showToast('All notifications cleared', 'success');
     } catch (error) {
       console.error("Failed to clear notifications", error);

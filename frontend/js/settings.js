@@ -1,5 +1,5 @@
 // DOM Elements
-const settingsBtn = document.getElementById('settings-btn');
+const settingsLink = document.getElementById('settings-link');
 const settingsModal = document.getElementById('settings-modal');
 const btnCloseSettings = document.getElementById('btn-close-settings');
 const btnCancelSettings = document.getElementById('btn-cancel-settings');
@@ -8,6 +8,7 @@ const tabButtons = document.querySelectorAll('.tab-btn');
 const tabPanes = document.querySelectorAll('.tab-pane');
 const btnTestSmtp = document.getElementById('btn-test-smtp');
 const btnTestJumpserver = document.getElementById('btn-test-jumpserver');
+const jumpEnabledCheckbox = document.getElementById('jump-enabled');
 
 // Current settings data
 let currentSettings = {};
@@ -22,11 +23,16 @@ async function loadSettings() {
       window.fetchAPI('/api/notifications/subscriptions')
     ]);
 
+    const notificationMap = (notificationSettings.subscriptions || []).reduce((map, record) => {
+      map[record.event_key] = record.is_subscribed;
+      return map;
+    }, {});
+
     currentSettings = {
       app: appSettings.app || {},
       smtp: smtpSettings.smtp || {},
       jump: jumpSettings.jumpserver || {},
-      notifications: notificationSettings.subscriptions || {}
+      notifications: notificationMap
     };
 
     populateForm();
@@ -53,10 +59,12 @@ function populateForm() {
   updateSmtpFieldVisibility();
 
   // Jump server settings
+  document.getElementById('jump-enabled').checked = currentSettings.jump?.active || false;
   document.getElementById('jump-host').value = currentSettings.jump.host || '';
   document.getElementById('jump-port').value = currentSettings.jump.port || 22;
   document.getElementById('jump-username').value = currentSettings.jump.username || '';
   document.getElementById('jump-password').value = currentSettings.jump.password || '';
+  updateJumpServerFieldVisibility();
 
   // Notification settings
   document.getElementById('notify-link-up').checked = currentSettings.notifications.link_up || false;
@@ -68,6 +76,7 @@ function populateForm() {
 // Save settings
 async function saveSettings() {
   const smtpEnabled = document.getElementById('smtp-enabled').checked;
+  const jumpEnabled = document.getElementById('jump-enabled').checked;
   const settingsData = {
     app: {
       ping_interval_seconds: parseInt(document.getElementById('ping-interval').value),
@@ -83,6 +92,7 @@ async function saveSettings() {
       use_tls: document.getElementById('smtp-use-tls').value === 'true'
     },
     jump: {
+      active: jumpEnabled,
       host: document.getElementById('jump-host').value.trim(),
       port: parseInt(document.getElementById('jump-port').value),
       username: document.getElementById('jump-username').value.trim(),
@@ -99,7 +109,7 @@ async function saveSettings() {
   window.setButtonLoading(btnSaveSettings, true, 'SAVING...');
 
   try {
-    await Promise.all([
+    const promises = [
       window.fetchAPI('/api/settings/app', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -110,19 +120,23 @@ async function saveSettings() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settingsData.smtp)
       }),
-      window.fetchAPI('/api/settings/jumpserver', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settingsData.jump)
-      }),
       window.fetchAPI('/api/notifications/subscriptions', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settingsData.notifications)
+        body: JSON.stringify({ subscriptions: Object.entries(settingsData.notifications).map(([event_key, is_subscribed]) => ({ event_key, is_subscribed })) })
       })
-    ]);
+    ];
+
+    promises.push(window.fetchAPI('/api/settings/jumpserver', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settingsData.jump)
+    }));
+
+    await Promise.all(promises);
 
     window.showToast('Settings saved successfully', 'success');
+    window.dispatchEvent(new CustomEvent('appSettingsUpdated', { detail: { settings: settingsData } }));
     hideSettingsModal();
   } catch (error) {
     console.error("Failed to save settings", error);
@@ -138,6 +152,16 @@ function updateSmtpFieldVisibility() {
   document.querySelectorAll('.smtp-field').forEach(field => {
     field.classList.toggle('hidden', !enabled);
   });
+  btnTestSmtp.disabled = !enabled;
+}
+
+// Update visibility of Jump Server fields based on enabled checkbox
+function updateJumpServerFieldVisibility() {
+  const enabled = document.getElementById('jump-enabled').checked;
+  document.querySelectorAll('.jumpserver-field').forEach(field => {
+    field.classList.toggle('hidden', !enabled);
+  });
+  btnTestJumpserver.disabled = !enabled;
 }
 
 // Test SMTP connection
@@ -180,6 +204,15 @@ async function testSmtp() {
 
 // Test jump server connection
 async function testJumpserver() {
+  if (!document.getElementById('jump-enabled').checked) {
+    await window.showAlert({
+      title: 'Jump Server Disabled',
+      message: 'Jump server is disabled. Enable it before testing.',
+      type: 'warning'
+    });
+    return;
+  }
+
   const jumpData = {
     host: document.getElementById('jump-host').value.trim(),
     port: parseInt(document.getElementById('jump-port').value),
@@ -228,13 +261,19 @@ function hideSettingsModal() {
 }
 
 // Event listeners
-settingsBtn.addEventListener('click', showSettingsModal);
+if (settingsLink) {
+  settingsLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    showSettingsModal();
+  });
+}
 btnCloseSettings.addEventListener('click', hideSettingsModal);
 btnCancelSettings.addEventListener('click', hideSettingsModal);
 btnSaveSettings.addEventListener('click', saveSettings);
 btnTestSmtp.addEventListener('click', testSmtp);
 btnTestJumpserver.addEventListener('click', testJumpserver);
 document.getElementById('smtp-enabled').addEventListener('change', updateSmtpFieldVisibility);
+document.getElementById('jump-enabled').addEventListener('change', updateJumpServerFieldVisibility);
 
 // Tab switching
 tabButtons.forEach(btn => {

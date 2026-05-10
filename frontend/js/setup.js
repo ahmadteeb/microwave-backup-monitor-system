@@ -31,6 +31,7 @@ const dbPort = document.getElementById('db-port');
 const dbUsername = document.getElementById('db-username');
 const dbPassword = document.getElementById('db-password');
 const dbDatabase = document.getElementById('db-database');
+const adminFullName = document.getElementById('admin-full-name');
 const smtpEnabled = document.getElementById('smtp-enabled');
 const smtpFields = document.querySelectorAll('.smtp-field');
 const jumpEnabled = document.getElementById('jumpserver-enabled');
@@ -191,12 +192,18 @@ function validateDatabaseConfig() {
 // Validate admin user step
 function validateAdminUser() {
   const username = document.getElementById('admin-username').value.trim();
+  const fullName = adminFullName.value.trim();
   const email = document.getElementById('admin-email').value.trim();
   const password = document.getElementById('admin-password').value;
   const confirmPassword = document.getElementById('admin-confirm-password').value;
 
   if (!username) {
     showError('Username is required.');
+    return false;
+  }
+
+  if (!fullName) {
+    showError('Full name is required.');
     return false;
   }
 
@@ -311,7 +318,7 @@ function getFormPayload() {
       password: dbPassword.value,
       database: dbDatabase.value.trim()
     },
-    full_name: document.getElementById('admin-username').value.trim(),
+    full_name: adminFullName.value.trim(),
     username: document.getElementById('admin-username').value.trim(),
     email: document.getElementById('admin-email').value.trim(),
     password: document.getElementById('admin-password').value,

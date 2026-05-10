@@ -7,7 +7,6 @@
   <title>MW Backup Link Monitor System</title>
   <link rel="stylesheet" href="/css/main.css">
   <link rel="stylesheet" href="/css/components.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
@@ -15,16 +14,17 @@
   <!-- Top Bar -->
   <header class="topbar">
     <div style="display: flex; align-items: center;">
-      <div class="sys-name text-teal">LINK_MONITOR_NOC</div>
-      <div class="sys-health" id="sys-health-badge">SYSTEM HEALTHY</div>
+      <div class="sys-name text-teal">MW LINK MONITOR</div>
+      <div class="sys-health" id="sys-health-badge">System Healthy</div>
     </div>
     <div class="topbar-right">
-      <div class="text-mono">UPTIME: <span id="uptime-val" class="text-teal">99.99%</span></div>
-      <div class="text-mono">NEXT_CHECK: <span id="next-check-val">00:00</span></div>
+      <div class="text-mono">Uptime: <span id="uptime-val" class="text-teal">99.99%</span></div>
+      <div class="text-mono">Next check: <span id="next-check-val">00:00</span></div>
       <div class="topbar-icons">
-        <i class="fa-regular fa-bell" id="notifications-btn" title="Notifications"></i>
-        <i class="fa-regular fa-envelope" id="messages-btn" title="Messages"></i>
-        <i class="fa-solid fa-gear" id="settings-btn" title="Settings"></i>
+        <div class="icon-button" id="notifications-button">
+          <i class="fa-regular fa-bell" id="notifications-btn" title="Notifications"></i>
+          <span class="icon-badge" id="notifications-count"></span>
+        </div>
         <div class="user-menu">
           <i class="fa-solid fa-circle-user" id="user-menu-btn"></i>
           <div class="user-dropdown" id="user-dropdown">
@@ -33,7 +33,11 @@
               <div class="user-role" id="user-role">Administrator</div>
             </div>
             <div class="dropdown-divider"></div>
-            <a href="/change-password" class="dropdown-item">
+            <a href="#" class="dropdown-item" id="settings-link">
+              <i class="fa-solid fa-gear"></i>
+              Settings
+            </a>
+            <a href="#" class="dropdown-item" id="change-password-link">
               <i class="fa-solid fa-key"></i>
               Change Password
             </a>
@@ -50,42 +54,18 @@
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-section">
-      <input type="text" id="search-input" class="sidebar-search" placeholder="&#xf002;  SITE/ID SEARCH..." style="font-family: var(--font-body), 'Font Awesome 6 Free'; font-weight: 900;">
-    </div>
-    
-    <div class="sidebar-section">
-      <div class="filter-label">STATUS_FILTER</div>
-      <select id="status-filter" class="filter-select">
-        <option value="ALL_OPERATIONAL">ALL_OPERATIONAL</option>
-        <option value="UP">UP</option>
-        <option value="DOWN">DOWN</option>
-        <option value="TIMEOUT">TIMEOUT</option>
-        <option value="HIGH">HIGH</option>
-      </select>
-    </div>
-
-    <div class="sidebar-section">
-      <div class="filter-label">LEG_REGION</div>
-      <select id="leg-filter" class="filter-select">
-        <option value="ALL_REGIONS">ALL_REGIONS</option>
-      </select>
-    </div>
-
-    <div class="sidebar-section">
       <div class="filter-label" style="margin-bottom: 12px;">NAVIGATION</div>
       <ul class="nav-menu">
-        <li class="nav-item active"><i class="fa-solid fa-border-all"></i> Dashboard</li>
-        <li class="nav-item"><i class="fa-solid fa-diagram-project"></i> Link Clusters</li>
-        <li class="nav-item"><i class="fa-solid fa-network-wired"></i> Topology</li>
-        <li class="nav-item"><i class="fa-solid fa-chart-line"></i> Traffic Analysis</li>
-        <li class="nav-item"><i class="fa-solid fa-list-ul"></i> System Logs</li>
+        <li class="nav-item active" data-section="dashboard"><i class="fa-solid fa-border-all"></i> Dashboard</li>
+        <li class="nav-item" data-section="logs"><i class="fa-solid fa-list-ul"></i> System Logs</li>
+        <li class="nav-item" data-section="users"><i class="fa-solid fa-users"></i> Users</li>
       </ul>
     </div>
 
     <div class="ping-log-container">
       <div class="sidebar-section" style="margin-bottom: 8px;">
         <div class="filter-label" style="display: flex; justify-content: space-between;">
-          PING_ACTIVITY_LOG <span style="color: var(--accent-teal);">●</span>
+          Ping activity <span style="color: var(--accent-teal);">●</span>
         </div>
       </div>
       <div class="ping-log-scroll" id="ping-log-list">
@@ -93,14 +73,13 @@
       </div>
     </div>
 
-    <button class="btn-add-link" id="btn-add-sidebar">+ ADD_LINK</button>
   </aside>
 
   <!-- Main Content -->
   <main class="main-content">
-    
-    <!-- KPI Row -->
-    <div class="kpi-row">
+    <div id="dashboard-section">
+      <!-- KPI Row -->
+      <div class="kpi-row">
       <div class="kpi-card teal">
         <div class="kpi-label">TOTAL LINKS</div>
         <div class="kpi-value" id="kpi-total">0</div>
@@ -130,8 +109,20 @@
           ACTIVE LINK INVENTORY <span class="table-count-badge" id="table-count">0 TOTAL</span>
         </div>
         <div class="table-actions">
-          <i class="fa-solid fa-filter" id="btn-table-filter" title="Filter"></i>
-          <i class="fa-solid fa-download" id="btn-table-download" title="Download"></i>
+          <div class="table-filters">
+            <input type="text" id="search-input" class="sidebar-search" placeholder="SEARCH LINK ID OR LEG..." style="font-family: var(--font-body), 'Font Awesome 6 Free'; font-weight: 900; width: 240px;">
+            <select id="status-filter" class="filter-select">
+              <option value="ALL_OPERATIONAL">All statuses</option>
+              <option value="UP">Up</option>
+              <option value="DOWN">Down</option>
+              <option value="TIMEOUT">Timeout</option>
+              <option value="HIGH">High</option>
+            </select>
+            <select id="leg-filter" class="filter-select">
+              <option value="ALL_REGIONS">All regions</option>
+            </select>
+          </div>
+          <button class="btn-icon" id="btn-table-download" title="Download inventory CSV"><i class="fa-solid fa-download"></i></button>
         </div>
       </div>
       
@@ -166,19 +157,57 @@
       </div>
     </div>
 
-    <!-- Bottom Panels -->
-    <div class="bottom-panels">
-      <div class="panel">
-        <div class="panel-title">NETWORK STABILITY TREND (24H)</div>
-        <div class="chart-container">
-          <canvas id="stabilityChart"></canvas>
+    <div id="logs-section" class="hidden">
+      <div class="page-header">
+        <div>
+          <h2>System Logs</h2>
+          <p>View recent system events, configuration changes, and audit history.</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn-secondary" id="btn-refresh-logs">REFRESH</button>
+          <a href="/api/logs/system/export" class="btn-primary">EXPORT CSV</a>
         </div>
       </div>
-      <div class="panel">
-        <div class="panel-title">TOPOLOGY MONITOR</div>
-        <div class="topology-placeholder">
-          <!-- Placeholder static graphic effect via CSS -->
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>TIMESTAMP</th>
+              <th>CATEGORY</th>
+              <th>EVENT</th>
+              <th>ACTOR</th>
+              <th>TARGET</th>
+              <th>DETAIL</th>
+            </tr>
+          </thead>
+          <tbody id="logs-table-body">
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="users-section" class="hidden">
+      <div class="page-header">
+        <div>
+          <h2>User Management</h2>
+          <p>Manage users, roles, and permission overrides for MW Link Monitor.</p>
         </div>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>NAME</th>
+              <th>EMAIL</th>
+              <th>ROLE</th>
+              <th>STATUS</th>
+              <th>LAST LOGIN</th>
+              <th>ACTIONS</th>
+            </tr>
+          </thead>
+          <tbody id="users-table-body">
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -188,29 +217,29 @@
   <div class="modal-overlay" id="link-modal">
     <div class="modal">
       <div class="modal-header">
-        <div class="modal-title"><i class="fa-solid fa-sliders text-teal"></i> CONFIGURE_MICROWAVE_LINK</div>
+        <div class="modal-title"><i class="fa-solid fa-sliders text-teal"></i> Configure Link</div>
         <button class="modal-close" id="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="modal-id">
         <div class="form-group">
-          <label class="form-label">LINK_ID</label>
+          <label class="form-label">Link ID</label>
           <input type="text" id="modal-link-id" class="form-control text-mono">
         </div>
         <div class="form-group">
-          <label class="form-label">LEG_NAME</label>
+          <label class="form-label">Leg name</label>
           <input type="text" id="modal-leg-name" class="form-control text-mono">
         </div>
         <div class="form-group">
-          <label class="form-label">SITE_A_NODE</label>
+          <label class="form-label">Site A node</label>
           <input type="text" id="modal-site-a" class="form-control text-mono" placeholder="e.g. ALPHA_BASE">
         </div>
         <div class="form-group">
-          <label class="form-label">SITE_B_NODE</label>
+          <label class="form-label">Site B node</label>
           <input type="text" id="modal-site-b" class="form-control text-mono" placeholder="e.g. DELTA_REPEATER">
         </div>
         <div class="form-group full">
-          <label class="form-label required" style="color: var(--accent-teal);">MW_IP_ADDRESS</label>
+          <label class="form-label required" style="color: var(--accent-teal);">MW IP address</label>
           <div style="position: relative;">
             <input type="text" id="modal-mw-ip" class="form-control text-mono" style="width: 100%; border-color: rgba(255,82,82,0);" placeholder="000.000.000.000">
             <i class="fa-solid fa-circle-exclamation hidden" id="ip-error-icon" style="position: absolute; right: 12px; top: 12px; color: var(--status-down);"></i>
@@ -219,18 +248,13 @@
         </div>
       </div>
       <div class="modal-footer">
-        <div class="auth-stamp"><i class="fa-regular fa-circle-user"></i> SYSTEM_AUTH: VALIDATED_USER_04</div>
+        <div class="auth-stamp"><i class="fa-regular fa-circle-user"></i> Authenticated user</div>
         <div class="modal-actions">
-          <button class="btn-ghost" id="btn-cancel-modal">CANCEL</button>
-          <button class="btn-primary" id="btn-save-modal"><i class="fa-regular fa-floppy-disk"></i> SAVE_LINK</button>
+          <button class="btn-ghost" id="btn-cancel-modal">Cancel</button>
+          <button class="btn-primary" id="btn-save-modal"><i class="fa-regular fa-floppy-disk"></i> Save Link</button>
         </div>
       </div>
     </div>
-  </div>
-
-  <!-- FAB -->
-  <div class="fab" id="fab-add-link">
-    <i class="fa-solid fa-plus"></i>
   </div>
 
   <!-- Notifications Modal -->
@@ -303,26 +327,26 @@
                 <label class="form-label">SMTP Port</label>
                 <input type="number" id="smtp-port" class="form-control text-mono">
               </div>
-              <div class="form-group">
+              <div class="form-group smtp-field">
                 <label class="form-label">Username</label>
                 <input type="text" id="smtp-username" class="form-control text-mono">
               </div>
-              <div class="form-group">
+              <div class="form-group smtp-field">
                 <label class="form-label">Password</label>
                 <input type="password" id="smtp-password" class="form-control text-mono">
               </div>
-              <div class="form-group">
+              <div class="form-group smtp-field">
                 <label class="form-label">From Email</label>
                 <input type="email" id="smtp-from-email" class="form-control text-mono">
               </div>
-              <div class="form-group">
+              <div class="form-group smtp-field">
                 <label class="form-label">Use TLS</label>
                 <select id="smtp-use-tls" class="form-control">
                   <option value="true">Yes</option>
                   <option value="false">No</option>
                 </select>
               </div>
-              <div class="form-actions">
+              <div class="form-actions smtp-field">
                 <button class="btn-primary" id="btn-test-smtp"><i class="fa-solid fa-paper-plane"></i> TEST SMTP</button>
               </div>
             </div>
@@ -331,22 +355,29 @@
             <div class="tab-pane" data-tab="jumpserver">
               <h4>Jump Server Configuration</h4>
               <div class="form-group">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="jump-enabled">
+                  <span class="toggle-track"></span>
+                  <span>Enable Jump Server</span>
+                </label>
+              </div>
+              <div class="form-group jumpserver-field">
                 <label class="form-label">Host</label>
                 <input type="text" id="jump-host" class="form-control text-mono">
               </div>
-              <div class="form-group">
+              <div class="form-group jumpserver-field">
                 <label class="form-label">Port</label>
                 <input type="number" id="jump-port" class="form-control text-mono" min="1" max="65535">
               </div>
-              <div class="form-group">
+              <div class="form-group jumpserver-field">
                 <label class="form-label">Username</label>
                 <input type="text" id="jump-username" class="form-control text-mono">
               </div>
-              <div class="form-group">
+              <div class="form-group jumpserver-field">
                 <label class="form-label">Password</label>
                 <input type="password" id="jump-password" class="form-control text-mono">
               </div>
-              <div class="form-actions">
+              <div class="form-actions jumpserver-field">
                 <button class="btn-primary" id="btn-test-jumpserver"><i class="fa-solid fa-plug"></i> TEST CONNECTION</button>
               </div>
             </div>
@@ -397,11 +428,47 @@
     </div>
   </div>
 
+  <!-- Change Password Modal -->
+  <div class="modal-overlay hidden" id="change-password-modal">
+    <div class="modal settings-modal">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-key text-teal"></i> CHANGE PASSWORD</div>
+        <button class="modal-close" id="btn-close-change-password"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="change-password-form">
+          <div class="form-group">
+            <label class="form-label">Current Password</label>
+            <input type="password" id="current-password" class="form-control text-mono" placeholder="Leave blank when first login">
+          </div>
+          <div class="form-group">
+            <label class="form-label">New Password</label>
+            <input type="password" id="new-password" class="form-control text-mono" required>
+            <div class="form-helper">Minimum 8 characters.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Confirm New Password</label>
+            <input type="password" id="confirm-password" class="form-control text-mono" required>
+          </div>
+          <div id="change-password-error" class="auth-error hidden">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span id="change-password-error-text"></span>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-cancel-change-password">CANCEL</button>
+          <button class="btn-primary" id="btn-save-change-password"><i class="fa-solid fa-check"></i> UPDATE PASSWORD</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="/js/dialog.js" defer></script>
   <script src="/js/dashboard.js" defer></script>
   <script src="/js/table.js" defer></script>
   <script src="/js/pinglog.js" defer></script>
-  <script src="/js/charts.js" defer></script>
   <script src="/js/modal.js" defer></script>
   <script src="/js/notifications.js" defer></script>
   <script src="/js/settings.js" defer></script>

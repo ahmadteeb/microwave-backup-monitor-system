@@ -301,5 +301,17 @@ def complete_setup():
     finally:
         new_session.close()
 
+    # Keep the currently running app aware that setup is complete, even before a restart.
+    current_setup_state = SetupState.query.get(1)
+    if current_setup_state:
+        if not current_setup_state.is_complete:
+            current_setup_state.is_complete = True
+            current_setup_state.completed_at = datetime.utcnow()
+            db.session.commit()
+    else:
+        current_setup_state = SetupState(id=1, is_complete=True, completed_at=datetime.utcnow())
+        db.session.add(current_setup_state)
+        db.session.commit()
+
     _save_secrets(db_config, database_url, secret_key)
     return jsonify({'redirect': '/login'}), 200

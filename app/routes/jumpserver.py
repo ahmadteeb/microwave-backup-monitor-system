@@ -1,6 +1,9 @@
-from flask import Blueprint, request, jsonify
+import base64
+import hashlib
+
+from cryptography.fernet import Fernet
+from flask import Blueprint, request, jsonify, current_app
 from app.models import db, JumpServer
-from app.services.crypto_service import encrypt, decrypt
 from app.permissions import login_required, require_permission
 
 jumpserver_bp = Blueprint('jumpserver', __name__, url_prefix='/api/jumpserver')
@@ -42,17 +45,39 @@ def get_jumpserver():
 @require_permission('config.edit_jumpserver')
 def update_jumpserver():
     data = request.get_json() or {}
+    active = bool(data.get('active', False))
+    password = data.get('password')
+
+    active_js = JumpServer.query.filter_by(active=True).first()
+
+    if not active:
+        if active_js:
+            active_js.active = False
+            if data.get('host'):
+                active_js.host = data['host']
+            if data.get('port'):
+                active_js.port = int(data.get('port', active_js.port))
+            if data.get('username'):
+                active_js.username = data['username']
+            if password and password != '••••••••':
+                active_js.password_encrypted = encrypt_password(password)
+            if data.get('label') is not None:
+                active_js.label = data.get('label')
+            db.session.commit()
+
+        return jsonify({
+            "active": False
+        }), 200
+
     if not data.get('host') or not data.get('username'):
         return jsonify({"error": "Missing required fields: host and username"}), 400
 
-    active_js = JumpServer.query.filter_by(active=True).first()
     if active_js:
         active_js.active = False
         db.session.commit()
 
-    password = data.get('password')
     if password and password != '••••••••':
-        encrypted_password = encrypt(password)
+        encrypted_password = encrypt_password(password)
     else:
         encrypted_password = active_js.password_encrypted if active_js else None
 

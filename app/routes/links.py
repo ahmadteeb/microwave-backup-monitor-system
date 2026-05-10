@@ -1,5 +1,7 @@
+import csv
+import io
 import re
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from app.models import db, Link, PingResult, MetricSnapshot
 from app.services.ping_service import ping_single_link
 from app.permissions import login_required, require_permission
@@ -106,6 +108,54 @@ def list_links():
         "page": paginated.page,
         "per_page": paginated.per_page,
         "pages": paginated.pages
+    })
+
+@links_bp.route('/export', methods=['GET'])
+@login_required
+@require_permission('links.export')
+def export_links():
+    status_filter = request.args.get('status')
+    leg_filter = request.args.get('leg')
+    search_query = request.args.get('search')
+
+    query = Link.query
+    if leg_filter and leg_filter != 'ALL_REGIONS':
+        query = query.filter(Link.leg_name == leg_filter)
+    if search_query:
+        search_term = f"%{search_query}%"
+        query = query.filter(db.or_(
+            Link.link_id.ilike(search_term),
+            Link.leg_name.ilike(search_term)
+        ))
+
+    links = query.all()
+    exported = [serialize_link(link) for link in links]
+    if status_filter and status_filter != 'ALL_OPERATIONAL':
+        exported = [link for link in exported if link['status'] == status_filter.upper()]
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Link ID", "Leg", "Site A", "Site B", "MW IP", "Equipment A", "Equipment B", "Link Type", "Status", "Latency ms", "Fiber Util %", "MW Util %", "Last Ping"])
+
+    for link in exported:
+        writer.writerow([
+            link["link_id"],
+            link["leg_name"],
+            link["site_a"],
+            link["site_b"],
+            link["mw_ip"],
+            link["equipment_a"],
+            link["equipment_b"],
+            link["link_type"],
+            link["status"],
+            link["latency_ms"] if link["latency_ms"] is not None else '',
+            link["latest_metric"]["fiber_util_pct"] if link["latest_metric"] else '',
+            link["latest_metric"]["mw_util_pct"] if link["latest_metric"] else '',
+            link["latest_ping"]["timestamp"] if link["latest_ping"] else ''
+        ])
+
+    return Response(output.getvalue(), mimetype='text/csv', headers={
+        'Content-Disposition': 'attachment; filename="active_link_inventory.csv"'
     })
 
 @links_bp.route('', methods=['POST'])

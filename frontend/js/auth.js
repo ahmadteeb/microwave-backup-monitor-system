@@ -60,8 +60,7 @@ async function handleLogin(event) {
       body: JSON.stringify({ username, password })
     });
 
-    // Redirect to dashboard on success
-    window.location.href = '/';
+    window.location.href = response.redirect || '/';
   } catch (error) {
     showError(error.message);
   } finally {

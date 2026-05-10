@@ -14,13 +14,15 @@ def get_profile():
     if not user:
         return jsonify({'error': 'User not found'}), 404
     return jsonify({
-        'id': user.id,
-        'username': user.username,
-        'full_name': user.full_name,
-        'email': user.email,
-        'role': user.role,
-        'last_login_at': user.last_login_at.isoformat() + 'Z' if user.last_login_at else None,
-        'force_password_change': user.force_password_change
+        'user': {
+            'id': user.id,
+            'username': user.username,
+            'full_name': user.full_name,
+            'email': user.email,
+            'role': user.role,
+            'last_login_at': user.last_login_at.isoformat() + 'Z' if user.last_login_at else None,
+            'force_password_change': user.force_password_change
+        }
     }), 200
 
 

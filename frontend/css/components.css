@@ -52,10 +52,13 @@
 
 /* Table */
 .table-container { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 20px; box-shadow: var(--shadow-card); }
-.table-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.table-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 14px; flex-wrap: wrap; }
 .table-title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 12px; }
 .table-count-badge { background: var(--bg-primary); padding: 4px 8px; border-radius: var(--radius-sm); font-size: 11px; color: var(--text-secondary); }
-.table-actions { display: flex; gap: 12px; color: var(--text-secondary); cursor: pointer; }
+.table-actions { display: flex; gap: 12px; align-items: center; }
+.table-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.btn-icon { background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 12px; color: var(--text-secondary); cursor: pointer; transition: background 0.2s, color 0.2s; }
+.btn-icon:hover { background: var(--bg-primary); color: var(--text-primary); }
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th { text-align: left; padding: 12px; color: var(--text-secondary); font-weight: 500; border-bottom: 1px solid var(--border-color); text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
