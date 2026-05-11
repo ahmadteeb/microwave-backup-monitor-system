@@ -20,15 +20,41 @@ def create_app(config_class=Config):
 
     with app.app_context():
         db.create_all()
+        
+        # Seed SetupState
         if not db.session.get(SetupState, 1):
             setup_state = SetupState(id=1, is_complete=False, completed_at=None)
             db.session.add(setup_state)
-            db.session.commit()
-
+            
+        # Seed AppSettings
         if not db.session.get(AppSettings, 1):
             settings = AppSettings(id=1)
             db.session.add(settings)
-            db.session.commit()
+            
+        # Seed Roles and Permissions
+        from app.models import Role, RolePermission
+        from app.permissions import ROLE_DEFAULTS
+        
+        roles_to_seed = [
+            ('admin', 'System Administrator with full access'),
+            ('operator', 'Operations user capable of managing links and users'),
+            ('viewer', 'Read-only access to monitoring data')
+        ]
+        
+        for role_name, desc in roles_to_seed:
+            role = Role.query.filter_by(name=role_name).first()
+            if not role:
+                role = Role(name=role_name, description=desc, is_system=True)
+                db.session.add(role)
+                db.session.flush() # ensure role is added before permissions
+                
+                # Seed default permissions for this role
+                defaults = ROLE_DEFAULTS.get(role_name, {})
+                for perm_key, is_granted in defaults.items():
+                    rp = RolePermission(role_name=role_name, permission_key=perm_key, is_granted=is_granted)
+                    db.session.add(rp)
+                    
+        db.session.commit()
 
     from app.routes.auth import auth_bp
     app.register_blueprint(auth_bp)
@@ -38,6 +64,9 @@ def create_app(config_class=Config):
 
     from app.routes.users import users_bp
     app.register_blueprint(users_bp)
+    
+    from app.routes.roles import roles_bp
+    app.register_blueprint(roles_bp)
 
     from app.routes.notifications import notifications_bp
     app.register_blueprint(notifications_bp)

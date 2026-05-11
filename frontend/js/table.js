@@ -122,6 +122,12 @@ function renderTable(links) {
     actionCell.className = 'action-btns';
     actionCell.style.textAlign = 'right';
 
+    const pingBtn = document.createElement('i');
+    pingBtn.className = 'fa-solid fa-satellite-dish';
+    pingBtn.title = 'Ping Link';
+    pingBtn.style.cursor = 'pointer';
+    pingBtn.addEventListener('click', () => window.manualPingLink(link.id, link.link_id, pingBtn));
+
     const editBtn = document.createElement('i');
     editBtn.className = 'fa-solid fa-pencil';
     editBtn.title = 'Edit Link';
@@ -134,6 +140,7 @@ function renderTable(links) {
     deleteBtn.style.cursor = 'pointer';
     deleteBtn.addEventListener('click', () => window.deleteLink(link.id, link.link_id));
 
+    actionCell.appendChild(pingBtn);
     actionCell.appendChild(editBtn);
     actionCell.appendChild(deleteBtn);
     tr.appendChild(actionCell);
@@ -235,6 +242,38 @@ btnNextPage.addEventListener('click', () => {
   }
 });
 
+// Manual ping link function (triggered by per-row ping button)
+window.manualPingLink = async (id, linkId, iconEl) => {
+  // Disable icon and show spinner state
+  const originalClass = iconEl.className;
+  iconEl.className = 'fa-solid fa-spinner fa-spin';
+  iconEl.style.pointerEvents = 'none';
+
+  try {
+    const result = await window.fetchAPI(`/api/links/${id}/ping`, { method: 'POST' });
+
+    // Restore icon
+    iconEl.className = originalClass;
+    iconEl.style.pointerEvents = '';
+
+    // Show result toast
+    if (result.reachable) {
+      const latency = result.latency_ms !== null ? ` — ${result.latency_ms.toFixed(1)}ms` : '';
+      window.showToast(`${linkId}: reachable${latency}`, 'success');
+    } else {
+      window.showToast(`${linkId}: unreachable`, 'error');
+    }
+
+    // The row will auto-update via ws:link_status_update emitted by the backend
+    // (ping_service already calls _emit_link_status_update after persist)
+
+  } catch (err) {
+    iconEl.className = originalClass;
+    iconEl.style.pointerEvents = '';
+    window.showToast(`Ping failed for ${linkId}: ${err.message}`, 'error');
+  }
+};
+
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
   loadLegOptions();
@@ -243,6 +282,30 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listen for real-time link status updates via WebSocket
   window.addEventListener('ws:link_status_update', (event) => {
     handleLinkStatusUpdate(event.detail);
+  });
+
+  // Listen for ping cycle start to show a pinging indicator
+  window.addEventListener('ws:ping_cycle_start', (event) => {
+    // Add a subtle "pinging" indicator to the table header
+    const tableHeader = document.querySelector('table thead tr');
+    if (tableHeader && !document.getElementById('pinging-indicator')) {
+      const indicator = document.createElement('div');
+      indicator.id = 'pinging-indicator';
+      indicator.style.cssText = 'color: var(--text-secondary); font-size: 0.85rem; padding: 4px 8px; margin-left: 8px; display: inline-block; animation: pulse 1.5s infinite;';
+      indicator.textContent = '🔄 Pinging...';
+      const headerCell = tableHeader.querySelector('th:last-child');
+      if (headerCell) {
+        headerCell.appendChild(indicator);
+      }
+    }
+  });
+
+  // Listen for ping cycle complete to remove the pinging indicator
+  window.addEventListener('ws:ping_cycle_complete', (event) => {
+    const indicator = document.getElementById('pinging-indicator');
+    if (indicator) {
+      indicator.remove();
+    }
   });
 
   // Expose pollTable for modal.js to call after CRUD

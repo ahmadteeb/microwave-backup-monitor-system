@@ -50,7 +50,9 @@ function renderNotifications(notifications) {
 
   notifications.forEach(notification => {
     const item = document.createElement('div');
-    item.className = `notification-item ${notification.is_read ? '' : 'unread'}`;
+    const severity = notification.severity === 'critical' ? 'error' : (notification.severity || 'info');
+    const severityClass = `severity-${severity}`;
+    item.className = `notification-item ${notification.is_read ? '' : 'unread'} ${severityClass}`;
     item.onclick = () => markAsRead(notification.id);
 
     const iconClass = getNotificationIcon(notification.event_key);
@@ -58,7 +60,7 @@ function renderNotifications(notifications) {
     const title = notification.event_key ? notification.event_key.replace(/_/g, ' ').toUpperCase() : 'Notification';
 
     item.innerHTML = `
-      <i class="${iconClass} notification-icon"></i>
+      <i class="${iconClass} notification-icon ${severityClass}"></i>
       <div class="notification-content">
         <div class="notification-title">${title}</div>
         <div class="notification-message">${notification.message}</div>

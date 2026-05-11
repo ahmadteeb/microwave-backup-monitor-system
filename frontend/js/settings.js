@@ -48,9 +48,9 @@ function populateForm() {
   document.getElementById('ping-interval').value = currentSettings.app.ping_interval_seconds || 60;
   document.getElementById('session-timeout').value = currentSettings.app.session_timeout_minutes || 480;
 
-  // SMTP settings
+  // SMTP settings (FIX: use 'host' not 'server')
   document.getElementById('smtp-enabled').checked = currentSettings.smtp.enabled || false;
-  document.getElementById('smtp-server').value = currentSettings.smtp.server || '';
+  document.getElementById('smtp-server').value = currentSettings.smtp.host || '';
   document.getElementById('smtp-port').value = currentSettings.smtp.port || 587;
   document.getElementById('smtp-username').value = currentSettings.smtp.username || '';
   document.getElementById('smtp-password').value = currentSettings.smtp.password || '';
@@ -58,7 +58,7 @@ function populateForm() {
   document.getElementById('smtp-use-tls').value = currentSettings.smtp.use_tls ? 'true' : 'false';
   updateSmtpFieldVisibility();
 
-  // Jump server settings
+  // Jump server settings (now returns most recent record regardless of active status)
   document.getElementById('jump-enabled').checked = currentSettings.jump?.active || false;
   document.getElementById('jump-host').value = currentSettings.jump.host || '';
   document.getElementById('jump-port').value = currentSettings.jump.port || 22;
@@ -77,6 +77,8 @@ function populateForm() {
 async function saveSettings() {
   const smtpEnabled = document.getElementById('smtp-enabled').checked;
   const jumpEnabled = document.getElementById('jump-enabled').checked;
+  const jumpHost = document.getElementById('jump-host').value.trim();
+  
   const settingsData = {
     app: {
       ping_interval_seconds: parseInt(document.getElementById('ping-interval').value),
@@ -84,7 +86,7 @@ async function saveSettings() {
     },
     smtp: {
       enabled: smtpEnabled,
-      server: document.getElementById('smtp-server').value.trim(),
+      host: document.getElementById('smtp-server').value.trim(),
       port: parseInt(document.getElementById('smtp-port').value),
       username: document.getElementById('smtp-username').value.trim(),
       password: document.getElementById('smtp-password').value,
@@ -93,7 +95,7 @@ async function saveSettings() {
     },
     jump: {
       active: jumpEnabled,
-      host: document.getElementById('jump-host').value.trim(),
+      host: jumpHost,
       port: parseInt(document.getElementById('jump-port').value),
       username: document.getElementById('jump-username').value.trim(),
       password: document.getElementById('jump-password').value
@@ -105,6 +107,12 @@ async function saveSettings() {
       system_error: document.getElementById('notify-system-error').checked
     }
   };
+
+  // Validate jump server: only send if enabled AND host is filled
+  // Otherwise send just the active flag to disable
+  if (!jumpEnabled || !jumpHost) {
+    settingsData.jump = { active: false };
+  }
 
   window.setButtonLoading(btnSaveSettings, true, 'SAVING...');
 
@@ -176,11 +184,11 @@ async function testSmtp() {
   }
 
   const smtpData = {
-    server: document.getElementById('smtp-server').value.trim(),
+    host: document.getElementById('smtp-server').value.trim(),
     port: parseInt(document.getElementById('smtp-port').value),
     username: document.getElementById('smtp-username').value.trim(),
     password: document.getElementById('smtp-password').value,
-    from_email: document.getElementById('smtp-from-email').value.trim(),
+    from_address: document.getElementById('smtp-from-email').value.trim(),
     use_tls: document.getElementById('smtp-use-tls').value === 'true'
   };
 

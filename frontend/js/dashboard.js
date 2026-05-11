@@ -9,6 +9,8 @@ const nextCheckVal = document.getElementById('next-check-val');
 // Global state for polling config
 let PING_INTERVAL_SECONDS = 60; // fallback when backend config is unavailable
 let lastPollAt = Date.now();
+let cycleStartedAt = null; // Track when the current ping cycle started
+let isPinging = false; // Track if we're currently pinging
 
 async function loadPollingConfig() {
   try {
@@ -83,8 +85,18 @@ function updateHealthBadge(data, error) {
 
 // Countdown Timer
 function tickCountdown() {
-  const elapsed = Math.floor((Date.now() - lastPollAt) / 1000);
-  const remaining = Math.max(0, PING_INTERVAL_SECONDS - elapsed);
+  let elapsed, remaining;
+  
+  if (isPinging && cycleStartedAt) {
+    // During a ping cycle, show elapsed time / progress
+    elapsed = Math.floor((Date.now() - cycleStartedAt) / 1000);
+    remaining = Math.max(0, PING_INTERVAL_SECONDS - elapsed);
+  } else {
+    // Between cycles, count down to next ping
+    elapsed = Math.floor((Date.now() - lastPollAt) / 1000);
+    remaining = Math.max(0, PING_INTERVAL_SECONDS - elapsed);
+  }
+  
   const m = Math.floor(remaining / 60).toString().padStart(2, '0');
   const s = (remaining % 60).toString().padStart(2, '0');
   if (nextCheckVal) nextCheckVal.textContent = `${m}:${s}`;
@@ -99,6 +111,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Listen for real-time KPI updates via WebSocket
   window.addEventListener('ws:kpi_update', (event) => {
     handleKPIUpdate(event.detail);
+  });
+
+  // Listen for ping cycle start event
+  window.addEventListener('ws:ping_cycle_start', (event) => {
+    isPinging = true;
+    cycleStartedAt = Date.now();
+    // Optionally add a "pinging" indicator to health badge or nearby
+    if (healthBadge) {
+      healthBadge.style.opacity = '0.7';
+      healthBadge.title = 'Pinging in progress...';
+    }
+  });
+
+  // Listen for ping cycle complete event
+  window.addEventListener('ws:ping_cycle_complete', (event) => {
+    isPinging = false;
+    cycleStartedAt = null;
+    lastPollAt = Date.now(); // Reset the countdown timer
+    if (healthBadge) {
+      healthBadge.style.opacity = '1';
+      healthBadge.title = '';
+    }
   });
 
   // Listen for settings changes

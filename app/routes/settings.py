@@ -117,34 +117,48 @@ def update_smtp():
 @login_required
 @require_permission('config.edit_smtp')
 def test_smtp():
-    config = db.session.get(SmtpConfig, 1)
-    if not config:
-        return jsonify({'error': 'SMTP not configured'}), 400
+    """Test SMTP connection using form data from request body (before save)."""
+    data = request.get_json() or {}
     user = _current_user()
     if not user:
         return jsonify({'error': 'Authentication required'}), 401
 
-    password = None
-    if config.password_encrypted:
-        try:
-            password = decrypt(config.password_encrypted)
-        except Exception as exc:
-            return jsonify({'error': f'Unable to decrypt SMTP password: {exc}'}), 500
+    host = data.get('host') or data.get('server')
+    port = int(data.get('port', 587))
+    username = data.get('username')
+    from_address = data.get('from_address') or data.get('from_email')
+    use_tls = bool(data.get('use_tls', True))
+    use_ssl = bool(data.get('use_ssl', False))
+
+    if not host or not from_address:
+        return jsonify({'error': 'SMTP host and from address are required'}), 400
+
+    # Resolve password: use provided value, fall back to saved DB record if masked
+    password = data.get('password')
+    if not password or password == '••••••••':
+        config = db.session.get(SmtpConfig, 1)
+        if config and config.password_encrypted:
+            try:
+                password = decrypt(config.password_encrypted)
+            except Exception as exc:
+                return jsonify({'error': f'Unable to decrypt saved SMTP password: {exc}'}), 500
+        else:
+            password = None
 
     try:
-        if config.use_ssl:
-            server = smtplib.SMTP_SSL(config.host, config.port, timeout=10)
+        if use_ssl:
+            server = smtplib.SMTP_SSL(host, port, timeout=10)
         else:
-            server = smtplib.SMTP(config.host, config.port, timeout=10)
-            if config.use_tls:
+            server = smtplib.SMTP(host, port, timeout=10)
+            if use_tls:
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
-        if config.username and password:
-            server.login(config.username, password)
+        if username and password:
+            server.login(username, password)
         message = EmailMessage()
         message['Subject'] = 'MW Link Monitor Test Email'
-        message['From'] = config.from_address
+        message['From'] = from_address
         message['To'] = user.email
         message.set_content('This is a test email from MW Link Monitor settings.')
         server.send_message(message)
@@ -159,7 +173,8 @@ def test_smtp():
 @login_required
 @require_permission('config.view')
 def get_jumpserver():
-    js = JumpServer.query.filter_by(active=True).first()
+    """Get the most recent jump server config (active or inactive)."""
+    js = JumpServer.query.order_by(JumpServer.id.desc()).first()
     if not js:
         return jsonify({'jumpserver': None}), 200
     return jsonify({'jumpserver': _build_jump_response(js)}), 200
@@ -169,6 +184,7 @@ def get_jumpserver():
 @login_required
 @require_permission('config.edit_jumpserver')
 def update_jumpserver():
+    """Update jump server config. Invalidates persistent SSH session on change."""
     data = request.get_json() or {}
     active = bool(data.get('active', True))
     active_js = db.session.query(JumpServer).filter_by(active=True).first()
@@ -178,7 +194,10 @@ def update_jumpserver():
             active_js.active = False
             db.session.commit()
             write_log('config', 'jumpserver_disabled', session.get('username', 'system'), 'jumpserver', {})
-        return jsonify({'jumpserver': None}), 200
+            # Invalidate the persistent SSH session
+            from app.services.ssh_session_manager import get_session_manager
+            get_session_manager().invalidate()
+        return jsonify({'jumpserver': _build_jump_response(active_js) if active_js else None}), 200
 
     if not data.get('host') or not data.get('username'):
         return jsonify({'error': 'Missing required fields'}), 400
@@ -208,6 +227,11 @@ def update_jumpserver():
     db.session.add(js)
     db.session.commit()
     write_log('config', 'jumpserver_updated', session.get('username', 'system'), 'jumpserver', {'changed': list(data.keys())})
+    
+    # Invalidate the persistent SSH session to force reconnect with new config
+    from app.services.ssh_session_manager import get_session_manager
+    get_session_manager().invalidate()
+    
     return jsonify({'jumpserver': _build_jump_response(js)}), 200
 
 
@@ -215,20 +239,30 @@ def update_jumpserver():
 @login_required
 @require_permission('config.edit_jumpserver')
 def test_jumpserver():
+    """Test jump server SSH connection using form data from request body (before save)."""
     data = request.get_json() or {}
-    js = JumpServer.query.filter_by(active=True).first()
-    if not js:
-        return jsonify({'error': 'Jump server not configured'}), 400
 
-    password = None
-    if js.password_encrypted:
-        try:
-            password = decrypt(js.password_encrypted)
-        except Exception as exc:
-            return jsonify({'error': f'Unable to decrypt jump server password: {exc}'}), 500
+    host = data.get('host')
+    port = int(data.get('port', 22))
+    username = data.get('username')
+
+    if not host or not username:
+        return jsonify({'error': 'Host and username are required'}), 400
+
+    # Resolve password: use provided value, fall back to saved DB record if masked
+    password = data.get('password')
+    if not password or password == '••••••••':
+        js = JumpServer.query.filter_by(active=True).first()
+        if js and js.password_encrypted:
+            try:
+                password = decrypt(js.password_encrypted)
+            except Exception as exc:
+                return jsonify({'error': f'Unable to decrypt saved jump server password: {exc}'}), 500
+        else:
+            return jsonify({'error': 'Password is required'}), 400
 
     try:
-        ssh = SSHService(js.host, js.username, password, js.port)
+        ssh = SSHService(host, username, password, port)
         ssh.connect()
         ssh.disconnect()
         return jsonify({'result': 'connection successful'}), 200
@@ -248,6 +282,7 @@ def get_app_settings():
         'ping_interval_seconds': settings.ping_interval_seconds,
         'ping_count': settings.ping_count,
         'ping_timeout_seconds': settings.ping_timeout_seconds,
+        'ping_concurrency': settings.ping_concurrency,
         'consecutive_timeout_alert_threshold': settings.consecutive_timeout_alert_threshold,
         'util_warning_threshold_pct': settings.util_warning_threshold_pct,
         'util_critical_threshold_pct': settings.util_critical_threshold_pct
@@ -265,7 +300,7 @@ def update_app_settings():
         db.session.add(settings)
 
     changed = {}
-    for field in ['session_timeout_minutes', 'ping_interval_seconds', 'ping_count', 'ping_timeout_seconds', 'consecutive_timeout_alert_threshold', 'util_warning_threshold_pct', 'util_critical_threshold_pct']:
+    for field in ['session_timeout_minutes', 'ping_interval_seconds', 'ping_count', 'ping_timeout_seconds', 'ping_concurrency', 'consecutive_timeout_alert_threshold', 'util_warning_threshold_pct', 'util_critical_threshold_pct']:
         if field in data:
             value = data[field]
             if getattr(settings, field) != value:

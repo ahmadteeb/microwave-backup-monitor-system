@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, session
 from sqlalchemy import func
-from app.models import db, User, UserPermission
+from app.models import db, User
 from app.services.log_service import write_log
 from app.extensions import bcrypt
 from app.permissions import has_permission, ROLE_DEFAULTS

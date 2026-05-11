@@ -314,4 +314,17 @@ def complete_setup():
         db.session.commit()
 
     _save_secrets(db_config, database_url, secret_key)
+
+    # Hot-swap the running app's database to the new URI so login works without restart
+    try:
+        current_app.config['SQLALCHEMY_DATABASE_URI'] = resolved_url
+        current_app.config['SECRET_KEY'] = secret_key
+        db.engine.dispose()
+        # Rebind to new engine
+        with current_app.app_context():
+            db.create_all()
+    except Exception as swap_exc:
+        import logging
+        logging.getLogger(__name__).warning(f"Hot-swap DB engine failed (restart may be needed): {swap_exc}")
+
     return jsonify({'redirect': '/login'}), 200

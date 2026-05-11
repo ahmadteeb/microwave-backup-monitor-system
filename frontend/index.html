@@ -6,7 +6,7 @@
   <meta name="description" content="MW Backup Link Monitor System — Real-time microwave link health monitoring, utilization tracking, and network stability analysis for NOC operations.">
   <title>MW Backup Link Monitor System</title>
   <link rel="stylesheet" href="/css/main.css">
-  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/components.css?v=2">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js" defer></script>
 </head>
@@ -58,8 +58,13 @@
       <div class="filter-label" style="margin-bottom: 12px;">NAVIGATION</div>
       <ul class="nav-menu">
         <li class="nav-item active" data-section="dashboard"><i class="fa-solid fa-border-all"></i> Dashboard</li>
+        <li class="nav-item" data-section="users">
+          <i class="fa-solid fa-users fa-fw"></i> Users
+        </li>
+        <li class="nav-item" data-section="roles">
+          <i class="fa-solid fa-user-shield fa-fw"></i> Roles
+        </li>
         <li class="nav-item" data-section="logs"><i class="fa-solid fa-list-ul"></i> System Logs</li>
-        <li class="nav-item" data-section="users"><i class="fa-solid fa-users"></i> Users</li>
       </ul>
     </div>
 
@@ -188,17 +193,21 @@
           <h2>User Management</h2>
           <p>Manage users, roles, and permission overrides for MW Link Monitor.</p>
         </div>
+        <div class="page-actions">
+          <button class="btn-primary" id="btn-add-user"><i class="fa-solid fa-plus"></i> ADD USER</button>
+        </div>
       </div>
       <div class="table-container">
         <table>
           <thead>
             <tr>
               <th>NAME</th>
+              <th>USERNAME</th>
               <th>EMAIL</th>
               <th>ROLE</th>
               <th>STATUS</th>
               <th>LAST LOGIN</th>
-              <th>ACTIONS</th>
+              <th style="text-align: right;">ACTIONS</th>
             </tr>
           </thead>
           <tbody id="users-table-body">
@@ -207,7 +216,195 @@
       </div>
     </div>
 
+    <div id="roles-section" class="hidden">
+      <div class="page-header">
+        <div>
+          <h2>Role Management</h2>
+          <p>Create custom roles and manage their default permissions.</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn-primary" id="btn-add-role"><i class="fa-solid fa-plus"></i> ADD ROLE</button>
+        </div>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>ROLE NAME</th>
+              <th>DESCRIPTION</th>
+              <th>TYPE</th>
+              <th style="text-align: right;">ACTIONS</th>
+            </tr>
+          </thead>
+          <tbody id="roles-table-body">
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </main>
+
+  <!-- Role Create/Edit Modal -->
+  <div class="modal-overlay" id="role-modal">
+    <div class="modal settings-modal">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-user-shield text-teal"></i> <span id="role-modal-title">CREATE ROLE</span></div>
+        <button class="modal-close" id="btn-close-role-modal"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="role-modal-original-name">
+        <div class="form-group full">
+          <label class="form-label">Role Name</label>
+          <input type="text" id="role-modal-name" class="form-control text-mono" required>
+          <div class="form-helper">Letters, numbers, hyphens, and underscores only. Cannot be changed later.</div>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Description</label>
+          <input type="text" id="role-modal-description" class="form-control">
+        </div>
+        <div id="role-modal-error" class="auth-error hidden" style="grid-column: span 2;">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <span id="role-modal-error-text"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-cancel-role-modal">CANCEL</button>
+          <button class="btn-primary" id="btn-save-role-modal"><i class="fa-regular fa-floppy-disk"></i> SAVE ROLE</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Role Permissions Modal -->
+  <div class="modal-overlay" id="role-permissions-modal">
+    <div class="modal settings-modal">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-shield-halved text-teal"></i> ROLE PERMISSIONS</div>
+        <button class="modal-close" id="btn-close-role-permissions"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="role-permissions-name">
+        <p class="text-secondary" style="margin-bottom: 16px;">Editing default permissions for role <strong id="role-permissions-title-name" class="text-teal"></strong></p>
+        <div class="form-helper" style="margin-bottom: 16px;">Toggle switches to set the default permissions for users assigned to this role.</div>
+        <div id="role-permissions-grid" class="permissions-grid">
+          <!-- JS renders permission rows -->
+        </div>
+        <div id="role-permissions-error" class="auth-error hidden">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <span id="role-permissions-error-text"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-cancel-role-permissions">CANCEL</button>
+          <button class="btn-primary" id="btn-save-role-permissions"><i class="fa-regular fa-floppy-disk"></i> SAVE PERMISSIONS</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Create/Edit Modal -->
+  <div class="modal-overlay" id="user-modal">
+    <div class="modal settings-modal">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-user-pen text-teal"></i> <span id="user-modal-title">CREATE USER</span></div>
+        <button class="modal-close" id="btn-close-user-modal"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="user-modal-id">
+        <div class="form-group">
+          <label class="form-label">Full Name</label>
+          <input type="text" id="user-modal-fullname" class="form-control text-mono" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input type="text" id="user-modal-username" class="form-control text-mono" required>
+          <div class="form-helper">Lowercase letters, numbers, and hyphens only.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="user-modal-email" class="form-control text-mono" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Role</label>
+          <select id="user-modal-role" class="form-control">
+            <!-- Populated by JS -->
+          </select>
+          <div class="form-helper">Role defines default permissions.</div>
+        </div>
+        <div class="form-group" id="user-modal-password-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="user-modal-password" class="form-control text-mono">
+          <div class="form-helper">Minimum 8 characters. Leave blank to use default "ChangeMe123!"</div>
+        </div>
+        <div class="form-group">
+          <label class="toggle-switch">
+            <input type="checkbox" id="user-modal-active" checked>
+            <span class="toggle-track"></span>
+            <span>Active</span>
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="toggle-switch">
+            <input type="checkbox" id="user-modal-force-pw" checked>
+            <span class="toggle-track"></span>
+            <span>Force password change on next login</span>
+          </label>
+        </div>
+        <div id="user-modal-error" class="auth-error hidden">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <span id="user-modal-error-text"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-cancel-user-modal">CANCEL</button>
+          <button class="btn-primary" id="btn-save-user-modal"><i class="fa-regular fa-floppy-disk"></i> SAVE USER</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset Password Modal -->
+  <div class="modal-overlay" id="reset-password-modal">
+    <div class="modal settings-modal">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-key text-teal"></i> RESET PASSWORD</div>
+        <button class="modal-close" id="btn-close-reset-pw"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="reset-pw-user-id">
+        <p class="text-secondary" style="margin-bottom: 16px;">Resetting password for <strong id="reset-pw-username" class="text-teal"></strong></p>
+        <div class="form-group">
+          <label class="form-label">New Password</label>
+          <input type="password" id="reset-pw-new" class="form-control text-mono" required>
+          <div class="form-helper">Minimum 8 characters.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Confirm Password</label>
+          <input type="password" id="reset-pw-confirm" class="form-control text-mono" required>
+        </div>
+        <div class="form-group">
+          <label class="toggle-switch">
+            <input type="checkbox" id="reset-pw-force" checked>
+            <span class="toggle-track"></span>
+            <span>Force password change on next login</span>
+          </label>
+        </div>
+        <div id="reset-pw-error" class="auth-error hidden">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <span id="reset-pw-error-text"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-cancel-reset-pw">CANCEL</button>
+          <button class="btn-primary" id="btn-save-reset-pw"><i class="fa-solid fa-key"></i> RESET PASSWORD</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Link Configure Modal -->
   <div class="modal-overlay" id="link-modal">
@@ -481,7 +678,7 @@
   </div>
 
   <script src="/js/api.js" defer></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.min.js" defer></script>
+  <script src="/js/chart.min.js" defer></script>
   <script src="/js/dialog.js" defer></script>
   <script src="/js/dashboard.js" defer></script>
   <script src="/js/table.js" defer></script>
@@ -489,6 +686,7 @@
   <script src="/js/charts.js" defer></script>
   <script src="/js/notifications.js" defer></script>
   <script src="/js/settings.js" defer></script>
-  <script src="/js/user.js" defer></script>
+  <script src="/js/user.js?v=2" defer></script>
+  <script src="/js/roles.js?v=2" defer></script>
 </body>
 </html>

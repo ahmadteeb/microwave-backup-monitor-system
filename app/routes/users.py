@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, session
-from app.models import db, User, UserPermission, NotificationSubscription
+from app.models import db, User, NotificationSubscription
 from app.services.log_service import write_log
 from app.extensions import bcrypt
 from app.permissions import login_required, require_permission, ROLE_DEFAULTS
@@ -63,6 +63,10 @@ def create_user():
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'error': 'Email already exists'}), 409
 
+    from app.models import Role
+    if not Role.query.filter_by(name=data['role']).first():
+        return jsonify({'error': 'Invalid role provided'}), 400
+
     password = data.get('password') or 'ChangeMe123!'
     if len(password) < 8:
         return jsonify({'error': 'Password must be at least 8 characters'}), 400
@@ -113,6 +117,9 @@ def update_user(id):
         updates['email'] = [user.email, data['email'].strip()]
         user.email = data['email'].strip()
     if data.get('role') and data['role'] != user.role:
+        from app.models import Role
+        if not Role.query.filter_by(name=data['role']).first():
+            return jsonify({'error': 'Invalid role provided'}), 400
         updates['role'] = [user.role, data['role']]
         user.role = data['role']
     if 'is_active' in data and data['is_active'] != user.is_active:
@@ -179,53 +186,6 @@ def unlock_user(id):
     write_log('auth', 'account_unlocked', session.get('username', 'system'), user.username, {'reason': 'manual'})
     return jsonify({'result': 'unlocked'}), 200
 
-
-@users_bp.route('/<int:id>/permissions', methods=['GET'])
-@login_required
-@require_permission('users.manage_permissions')
-def get_user_permissions(id):
-    user = db.session.get(User, id)
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
-    defaults = ROLE_DEFAULTS.get(user.role, {})
-    overrides = {
-        perm.permission_key: perm.is_granted
-        for perm in user.permissions
-    }
-    return jsonify({'permissions': defaults, 'overrides': overrides}), 200
-
-
-@users_bp.route('/<int:id>/permissions', methods=['PUT'])
-@login_required
-@require_permission('users.manage_permissions')
-def update_user_permissions(id):
-    user = db.session.get(User, id)
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
-    data = request.get_json() or {}
-    overrides = data.get('overrides', {})
-    if not isinstance(overrides, dict):
-        return jsonify({'error': 'Invalid override payload'}), 400
-
-    changed = []
-    for key, new_value in overrides.items():
-        entry = UserPermission.query.filter_by(user_id=user.id, permission_key=key).first()
-        if entry:
-            if entry.is_granted != bool(new_value):
-                changed.append({'key': key, 'old_value': entry.is_granted, 'new_value': bool(new_value)})
-                entry.is_granted = bool(new_value)
-        else:
-            default_value = ROLE_DEFAULTS.get(user.role, {}).get(key, False)
-            if bool(new_value) != default_value:
-                entry = UserPermission(user_id=user.id, permission_key=key, is_granted=bool(new_value))
-                db.session.add(entry)
-                changed.append({'key': key, 'old_value': default_value, 'new_value': bool(new_value)})
-
-    db.session.commit()
-    for change in changed:
-        write_log('users', 'permission_overridden', session.get('username', 'system'), user.username, change)
-
-    return jsonify({'result': 'permissions updated'}), 200
 
 
 @users_bp.route('/<int:id>/notifications/subscriptions', methods=['GET'])

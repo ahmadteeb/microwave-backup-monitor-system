@@ -1,7 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 import threading
 import logging
-from app.services.ping_service import run_ping_cycle
+from app.services.ping_service import run_ping_cycle, set_app_instance
 from app.extensions import db
 from app.models import AppSettings
 
@@ -38,6 +38,7 @@ def init_scheduler(app):
     
     # Store the app instance globally
     _app_instance = app
+    set_app_instance(app)
     
     # Return existing scheduler if already initialized
     if _scheduler_instance and _scheduler_instance.running:

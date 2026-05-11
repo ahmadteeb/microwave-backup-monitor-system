@@ -122,13 +122,13 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
             # Load SMTP config for email delivery
             smtp_record = SmtpConfig.query.first()
             smtp_config = None
-            if smtp_record and smtp_record.enabled:
+            if smtp_record:
                 smtp_config = {
                     'host': smtp_record.host,
                     'port': smtp_record.port,
                     'username': smtp_record.username,
                     'password_encrypted': smtp_record.password_encrypted,
-                    'from_address': smtp_record.from_email,
+                    'from_address': smtp_record.from_address,
                     'use_tls': smtp_record.use_tls,
                     'use_ssl': getattr(smtp_record, 'use_ssl', False),
                 }

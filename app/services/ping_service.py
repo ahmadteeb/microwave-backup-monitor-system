@@ -1,16 +1,38 @@
+"""
+Ping Service: Execute network pings against links and persist results.
+
+MAJOR CHANGES:
+- Concurrent pinging using ThreadPoolExecutor (configurable workers, default 10)
+- New _ping_one_link() helper for per-link execution in worker threads
+- Thread-safe _persist_ping_result() with scoped DB sessions (db.session.remove() in finally)
+- New WebSocket events: ping_cycle_start, ping_cycle_complete
+- UPDATED: Uses persistent SSHSessionManager instead of per-cycle SSH connect/disconnect
+- Each worker thread uses its own DB session scope to avoid conflicts
+- Original ping_single_link() now uses SSHSessionManager for persistent connections
+"""
+
 import re
 import time
 import logging
 import platform
 import subprocess
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import current_app
 from app.models import db, Link, PingResult, JumpServer, AppSettings, LinkStatus, MetricSnapshot
-from app.services.ssh_service import SSHService
 from app.services.notification_service import send_event_notification
 from app.services.crypto_service import decrypt
+from app.services.ssh_session_manager import get_session_manager
 
 logger = logging.getLogger(__name__)
+
+# Global app instance for background threads (set by scheduler or tests)
+_app_instance = None
+
+def set_app_instance(app):
+    """Set the Flask app instance for use in background threads."""
+    global _app_instance
+    _app_instance = app
 
 def parse_ping_output(raw_output):
     """
@@ -47,23 +69,6 @@ def parse_ping_output(raw_output):
 
     return reachable, latency_ms, packet_loss
 
-def _get_active_jumpserver_config():
-    js = JumpServer.query.filter_by(active=True).first()
-    if js:
-        password = decrypt(js.password_encrypted) if js.password_encrypted else None
-        return js.host, js.port, js.username, password
-
-    host = current_app.config.get('JUMP_HOST')
-    username = current_app.config.get('JUMP_USER')
-    password = current_app.config.get('JUMP_PASSWORD')
-    port = current_app.config.get('JUMP_PORT', 22)
-
-    if host and username and password:
-        return host, port, username, password
-
-    return None
-
-
 def _run_local_ping(ip):
     settings = _get_ping_settings()
     system_name = platform.system().lower()
@@ -86,13 +91,19 @@ def _run_local_ping(ip):
 
 
 def _get_ping_settings():
-    settings = db.session.get(AppSettings, 1)
+    """Fetch ping settings from DB or app config (safe for use in background threads)."""
+    try:
+        settings = db.session.get(AppSettings, 1)
+    except Exception:
+        settings = None
+    
     return {
         'count': settings.ping_count if settings else current_app.config.get('PING_COUNT', 3),
         'timeout': settings.ping_timeout_seconds if settings else current_app.config.get('PING_TIMEOUT', 2),
         'consecutive_timeout_threshold': settings.consecutive_timeout_alert_threshold if settings else 5,
         'util_warning_threshold_pct': settings.util_warning_threshold_pct if settings else 70.0,
-        'util_critical_threshold_pct': settings.util_critical_threshold_pct if settings else 90.0
+        'util_critical_threshold_pct': settings.util_critical_threshold_pct if settings else 90.0,
+        'concurrency': settings.ping_concurrency if settings else 10,
     }
 
 
@@ -210,7 +221,43 @@ def _emit_kpi_update():
         logger.warning(f"Failed to emit kpi_update: {e}")
 
 
+def _emit_ping_cycle_start(total_links):
+    """Emit WebSocket event when ping cycle begins."""
+    try:
+        from app.extensions import socketio
+        payload = {
+            'total': total_links,
+            'started_at': datetime.utcnow().isoformat() + 'Z'
+        }
+        socketio.emit('ping_cycle_start', payload)
+    except Exception as e:
+        logger.warning(f"Failed to emit ping_cycle_start: {e}")
+
+
+def _emit_ping_cycle_complete(total_links):
+    """Emit WebSocket event when ping cycle completes."""
+    try:
+        from app.extensions import socketio
+        payload = {
+            'total': total_links,
+            'completed_at': datetime.utcnow().isoformat() + 'Z'
+        }
+        socketio.emit('ping_cycle_complete', payload)
+    except Exception as e:
+        logger.warning(f"Failed to emit ping_cycle_complete: {e}")
+
+
 def _persist_ping_result(link, reachable, latency_ms, packet_loss, raw_output, triggered_by='scheduler', triggered_by_user_id=None):
+    """
+    Persist a ping result to the database (thread-safe).
+    
+    Each thread must have its own DB session scope. This is called from worker threads,
+    so we do NOT use the request-scoped db.session directly. Instead, we create and clean
+    up our own session lifecycle.
+    
+    Note: SQLite may need additional locking for concurrent writes, but Flask-SQLAlchemy
+    handles connection pooling. We add a retry mechanism for robustness.
+    """
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -237,97 +284,172 @@ def _persist_ping_result(link, reachable, latency_ms, packet_loss, raw_output, t
             db.session.rollback()
             if attempt < max_retries - 1:
                 logger.warning(f"Database operation failed (attempt {attempt + 1}/{max_retries}), retrying: {e}")
-                import time
                 time.sleep(0.1 * (attempt + 1))  # Exponential backoff
             else:
                 logger.error(f"Failed to persist ping result after {max_retries} attempts: {e}")
                 raise
+        finally:
+            # Clean up session for this thread
+            db.session.remove()
 
 
 def ping_single_link(link):
-    """Pings a single link using an active jump server or local ping fallback."""
-    config = _get_active_jumpserver_config()
+    """
+    Pings a single link synchronously (e.g., from a manual API endpoint).
+    
+    Uses persistent SSHSessionManager if jump server is configured.
+    Falls back to local ping if no jump server is active or if session unavailable.
+    This is NOT concurrent; it blocks until the ping completes.
+    Returns immediately with the result (no async/threading).
+    """
     raw_output = ""
-
-    if config:
-        host, port, username, password = config
-        ssh = SSHService(host, username, password, port)
+    
+    try:
+        # Try to use persistent SSH session if jump server configured
         try:
-            ssh.connect()
-        except Exception as e:
-            logger.error(f"Failed to connect to jump server: {e}")
-            raise Exception("Jump server connection failed")
-
-        settings = _get_ping_settings()
-        cmd = f"ping -c {settings['count']} -W {settings['timeout']} {link.mw_ip}"
-
-        try:
-            raw_output = ssh.execCommand(cmd)
-            reachable, latency_ms, packet_loss = parse_ping_output(raw_output)
-        except Exception as e:
-            logger.error(f"Ping command failed for {link.mw_ip}: {e}")
-            raw_output = str(e)
-            send_event_notification(
-                'ping_service_error',
-                f'Ping command failed for {link.link_id}: {e}',
-                link_id=link.link_id,
-                severity='error'
-            )
-            reachable, latency_ms, packet_loss = False, None, None
-        finally:
-            ssh.disconnect()
-    else:
-        raw_output = _run_local_ping(link.mw_ip)
+            settings = _get_ping_settings()
+            cmd = f"ping -c {settings['count']} -W {settings['timeout']} {link.mw_ip}"
+            raw_output = get_session_manager().execute(cmd, timeout=settings['timeout'] + 5)
+        except RuntimeError:
+            # No jump server configured, fall back to local ping
+            raw_output = _run_local_ping(link.mw_ip)
+        
         reachable, latency_ms, packet_loss = parse_ping_output(raw_output)
+    except Exception as e:
+        logger.error(f"Ping command failed for {link.mw_ip}: {e}")
+        raw_output = str(e)
+        send_event_notification(
+            'ping_service_error',
+            f'Ping command failed for {link.link_id}: {e}',
+            link_id=link.link_id,
+            severity='error'
+        )
+        reachable, latency_ms, packet_loss = False, None, None
 
     result = _persist_ping_result(link, reachable, latency_ms, packet_loss, raw_output, triggered_by='manual')
     return result
 
-def run_ping_cycle():
-    """Runs a full ping cycle across all links using a jump server or local ping fallback."""
-    config = _get_active_jumpserver_config()
-    using_jump_server = bool(config)
-    ssh = None
 
-    try:
-        if using_jump_server:
-            host, port, username, password = config
-            ssh = SSHService(host, username, password, port)
-            ssh.connect()
-
-        links = Link.query.all()
-        settings = _get_ping_settings()
-        cmd_template = "ping -c {count} -W {timeout} {ip}"
-
-        for link in links:
-            raw_output = ""
+def _ping_one_link(link, settings):
+    """
+    Ping a single link (worker thread function).
+    
+    This runs in a background thread and must NOT use the request-scoped session.
+    It executes the ping, parses output, persists result with its own DB session,
+    and emits WebSocket updates.
+    
+    Uses persistent SSHSessionManager if jump server is configured, otherwise
+    falls back to local ping.
+    
+    Worker thread must establish its own Flask app context via the global _app_instance
+    to access database and send notifications.
+    
+    Args:
+        link: Link model instance (read-only in thread)
+        settings: Dict of ping settings from _get_ping_settings()
+        
+    Returns:
+        (link.id, success: bool, error_msg: str or None)
+    """
+    # Each worker thread must establish its own app context
+    if not _app_instance:
+        logger.error(f"Failed to ping link {link.mw_ip} ({link.link_id}): App instance not available")
+        return (link.id, False, "App instance not available")
+    
+    with _app_instance.app_context():
+        raw_output = ""
+        try:
+            # Try to use persistent SSH session if jump server configured
             try:
-                if using_jump_server:
-                    cmd = cmd_template.format(count=settings['count'], timeout=settings['timeout'], ip=link.mw_ip)
-                    raw_output = ssh.execCommand(cmd)
-                else:
-                    raw_output = _run_local_ping(link.mw_ip)
+                cmd = f"ping -c {settings['count']} -W {settings['timeout']} {link.mw_ip}"
+                raw_output = get_session_manager().execute(cmd, timeout=settings['timeout'] + 5)
+            except RuntimeError:
+                # No jump server configured, fall back to local ping
+                raw_output = _run_local_ping(link.mw_ip)
 
-                reachable, latency_ms, packet_loss = parse_ping_output(raw_output)
-                _persist_ping_result(link, reachable, latency_ms, packet_loss, raw_output)
-            except Exception as e:
-                logger.error(f"Failed to ping link {link.mw_ip}: {e}")
+            reachable, latency_ms, packet_loss = parse_ping_output(raw_output)
+            _persist_ping_result(link, reachable, latency_ms, packet_loss, raw_output)
+            return (link.id, True, None)
+        except Exception as e:
+            logger.error(f"Failed to ping link {link.mw_ip} ({link.link_id}): {e}")
+            try:
+                send_event_notification(
+                    'ping_service_error',
+                    f'Ping execution failed for {link.link_id}: {e}',
+                    link_id=link.link_id,
+                    severity='error'
+                )
+            except Exception as notify_error:
+                logger.error(f"Failed to send notification: {notify_error}")
+            
+            # Persist the failure result
+            try:
+                _persist_ping_result(link, False, None, None, str(e))
+            except Exception as persist_error:
+                logger.error(f"Failed to persist ping failure: {persist_error}")
+            
+            return (link.id, False, str(e))
+
+
+def run_ping_cycle():
+    """
+    Run a full ping cycle across all links using concurrent.futures.ThreadPoolExecutor.
+    
+    Uses persistent SSHSessionManager for jump server connections (if configured).
+    Falls back to local ping if no jump server is active.
+    
+    Flow:
+    1. Emit ping_cycle_start WS event
+    2. Spawn worker threads (default 10) via ThreadPoolExecutor
+    3. Each thread calls _ping_one_link() for its link
+    4. Workers emit link_status_update per-link as they complete
+    5. Wait for all workers to complete
+    6. Emit ping_cycle_complete WS event
+    7. Emit kpi_update once for the full cycle
+    """
+    try:
+        # Fetch all links
+        links = Link.query.all()
+        if not links:
+            logger.info("No links to ping")
+            return
+        
+        settings = _get_ping_settings()
+        concurrency = settings['concurrency']
+
+        # Emit cycle start
+        _emit_ping_cycle_start(len(links))
+
+        # Execute pings concurrently
+        # (SSHSessionManager is persistent and thread-safe; no per-thread connect needed)
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = {
+                executor.submit(_ping_one_link, link, settings): link.id
+                for link in links
+            }
+            
+            completed_count = 0
+            failed_count = 0
+            for future in as_completed(futures):
                 try:
-                    send_event_notification(
-                        'ping_service_error',
-                        f'Ping execution failed for {link.link_id}: {e}',
-                        link_id=link.link_id,
-                        severity='error'
-                    )
-                    _persist_ping_result(link, False, None, None, str(e))
-                except Exception as notify_error:
-                    logger.error(f"Failed to send notification for ping error: {notify_error}")
+                    link_id_result, success, error_msg = future.result()
+                    if success:
+                        completed_count += 1
+                        logger.debug(f"Successfully pinged link {link_id_result}")
+                    else:
+                        failed_count += 1
+                        logger.warning(f"Failed to ping link {link_id_result}: {error_msg}")
+                except Exception as e:
+                    failed_count += 1
+                    logger.error(f"Worker thread exception: {e}")
 
-        # Emit KPI update after the full cycle completes
+        logger.info(f"Ping cycle completed: {completed_count} succeeded, {failed_count} failed")
+
+        # Emit cycle complete
+        _emit_ping_cycle_complete(len(links))
+
+        # Emit KPI update once for the full cycle
         _emit_kpi_update()
 
     except Exception as e:
         logger.error(f"Ping cycle failed: {e}")
-    finally:
-        if ssh:
-            ssh.disconnect()

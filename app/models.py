@@ -59,13 +59,32 @@ class SetupState(db.Model):
     is_complete = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
     completed_at = db.Column(db.DateTime, nullable=True)
 
+class Role(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    description = db.Column(db.String(256), nullable=True)
+    is_system = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    permissions = db.relationship('RolePermission', backref='role_ref', lazy='dynamic', cascade='all, delete-orphan')
+
+class RolePermission(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    role_name = db.Column(db.String(64), db.ForeignKey('role.name'), nullable=False)
+    permission_key = db.Column(db.String(64), nullable=False)
+    is_granted = db.Column(db.Boolean, nullable=False, default=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('role_name', 'permission_key', name='uq_role_permission'),
+    )
+
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(64), unique=True, nullable=False, index=True)
     full_name = db.Column(db.String(128), nullable=False)
     email = db.Column(db.String(256), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(256), nullable=False)
-    role = db.Column(db.Enum('admin', 'operator', 'viewer', name='user_roles'), nullable=False)
+    role = db.Column(db.String(64), db.ForeignKey('role.name'), nullable=False)
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
     is_locked = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
     locked_until = db.Column(db.DateTime, nullable=True)
@@ -75,22 +94,23 @@ class User(db.Model):
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_login_at = db.Column(db.DateTime, nullable=True)
 
-    permissions = db.relationship('UserPermission', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+    # User permissions removed, we now rely strictly on RolePermission.
+    # UserPermission model removed to simplify logic.
     notification_subscriptions = db.relationship('NotificationSubscription', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     notifications = db.relationship('InAppNotification', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     updated_smtp_configs = db.relationship('SmtpConfig', backref='updated_by', foreign_keys='SmtpConfig.updated_by_id')
     updated_jumpservers = db.relationship('JumpServer', backref='updated_by', foreign_keys='JumpServer.updated_by_id')
     updated_app_settings = db.relationship('AppSettings', backref='updated_by', foreign_keys='AppSettings.updated_by_id')
 
-class UserPermission(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    permission_key = db.Column(db.String(64), nullable=False)
-    is_granted = db.Column(db.Boolean, nullable=False)
-
-    __table_args__ = (
-        db.UniqueConstraint('user_id', 'permission_key', name='uq_user_permission'),
-    )
+# class UserPermission(db.Model):
+#     id = db.Column(db.Integer, primary_key=True)
+#     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+#     permission_key = db.Column(db.String(64), nullable=False)
+#     is_granted = db.Column(db.Boolean, nullable=False)
+# 
+#     __table_args__ = (
+#         db.UniqueConstraint('user_id', 'permission_key', name='uq_user_permission'),
+#     )
 
 class NotificationSubscription(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -140,6 +160,7 @@ class AppSettings(db.Model):
     ping_interval_seconds = db.Column(db.Integer, nullable=False, default=60, server_default='60')
     ping_count = db.Column(db.Integer, nullable=False, default=3, server_default='3')
     ping_timeout_seconds = db.Column(db.Integer, nullable=False, default=2, server_default='2')
+    ping_concurrency = db.Column(db.Integer, nullable=False, default=10, server_default='10')
     consecutive_timeout_alert_threshold = db.Column(db.Integer, nullable=False, default=5, server_default='5')
     util_warning_threshold_pct = db.Column(db.Float, nullable=False, default=70.0, server_default='70.0')
     util_critical_threshold_pct = db.Column(db.Float, nullable=False, default=90.0, server_default='90.0')

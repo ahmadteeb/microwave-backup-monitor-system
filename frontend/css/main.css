@@ -85,6 +85,9 @@ input, select {
 .text-mono { font-family: var(--font-mono); }
 .text-muted { color: var(--text-muted); }
 .text-secondary { color: var(--text-secondary); }
+.text-danger { color: var(--status-down); }
+.text-warning { color: var(--status-warning); }
+.text-info { color: var(--accent-teal); }
 
 /* Layout areas */
 .topbar {
