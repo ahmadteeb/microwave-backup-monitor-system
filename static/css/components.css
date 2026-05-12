@@ -323,10 +323,24 @@
 }
 
 .table-filters {
-  display: flex;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(160px, 210px));
+  gap: 10px;
   align-items: center;
-  flex-wrap: wrap;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.table-filters input,
+.table-filters select {
+  min-width: 0;
+  width: 100%;
+}
+
+.table-filters .filter-select {
+  padding: 10px 14px;
 }
 
 .table-action-buttons {

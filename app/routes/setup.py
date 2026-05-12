@@ -19,7 +19,11 @@ DB_ENGINES = {
 
 
 def _get_db_config_path():
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'secrets', 'secrets.json'))
+    app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    secrets_path = os.path.abspath(os.path.join(app_root, 'data', 'secrets', 'secrets.json'))
+    if os.path.exists(secrets_path):
+        return secrets_path
+    return os.path.abspath(os.path.join(app_root, 'secrets', 'secrets.json'))
 
 
 def _validate_db_payload(db_config):

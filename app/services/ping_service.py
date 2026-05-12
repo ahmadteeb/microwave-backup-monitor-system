@@ -128,7 +128,7 @@ def _build_link_status(link, reachable, latency_ms, packet_loss, result_timestam
         db.session.add(status_record)
 
     previous_status = status_record.mw_status
-    previous_timeouts = status_record.consecutive_timeouts
+    previous_timeouts = status_record.consecutive_timeouts or 0
 
     new_status = _derive_status(reachable, latest_metric, settings)
     status_record.mw_status = new_status

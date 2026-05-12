@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, timedelta
-from flask import Flask, send_from_directory, session, redirect, jsonify, request
+from flask import Flask, session, redirect, jsonify, request, render_template
 
 from app.config import Config
 from app.extensions import db, bcrypt, socketio
@@ -8,7 +8,14 @@ from app.models import SetupState, AppSettings, User
 
 
 def create_app(config_class=Config):
-    app = Flask(__name__, static_folder='../frontend', static_url_path='/frontend')
+    app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    app = Flask(
+        __name__,
+        static_folder=os.path.join(app_root, 'static'),
+        template_folder=os.path.join(app_root, 'templates'),
+        instance_path=os.path.join(app_root, 'data', 'instance'),
+        static_url_path='/static'
+    )
     app.config.from_object(config_class)
 
     db.init_app(app)
@@ -102,16 +109,18 @@ def create_app(config_class=Config):
         allowed_prefixes = (
             '/setup',
             '/api/setup',
-            '/css/',
-            '/js/',
-            '/frontend/',
+            '/static/',
             '/favicon.ico'
         )
         return any(path.startswith(prefix) for prefix in allowed_prefixes)
 
     def _secrets_file_exists():
-        secrets_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'secrets', 'secrets.json'))
-        return os.path.exists(secrets_path)
+        app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        secrets_path = os.path.abspath(os.path.join(app_root, 'data', 'secrets', 'secrets.json'))
+        if os.path.exists(secrets_path):
+            return True
+        legacy_path = os.path.abspath(os.path.join(app_root, 'secrets', 'secrets.json'))
+        return os.path.exists(legacy_path)
 
     @app.before_request
     def global_before_request():
@@ -137,9 +146,7 @@ def create_app(config_class=Config):
             # Allow public access to login and static resources
             public_paths = (
                 '/login',
-                '/css/',
-                '/js/',
-                '/frontend/',
+                '/static/',
                 '/favicon.ico',
                 '/api/auth/login',
                 '/socket.io/'
@@ -179,22 +186,14 @@ def create_app(config_class=Config):
 
     @app.route('/')
     def index():
-        return app.send_static_file('index.html')
+        return render_template('index.html')
 
     @app.route('/login')
     def login_page():
-        return app.send_static_file('login.html')
+        return render_template('login.html')
 
     @app.route('/setup')
     def setup_page():
-        return app.send_static_file('setup.html')
-
-    @app.route('/css/<path:path>')
-    def send_css(path):
-        return send_from_directory(os.path.join(app.static_folder, 'css'), path)
-
-    @app.route('/js/<path:path>')
-    def send_js(path):
-        return send_from_directory(os.path.join(app.static_folder, 'js'), path)
+        return render_template('setup.html')
 
     return app

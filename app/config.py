@@ -6,7 +6,10 @@ def _load_config_values():
     default_secret = os.environ.get('SECRET_KEY', 'change-this-to-a-random-secret-key')
     db_uri = os.environ.get('DATABASE_URL')
 
-    secrets_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'secrets', 'secrets.json'))
+    app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    secrets_path = os.path.abspath(os.path.join(app_root, 'data', 'secrets', 'secrets.json'))
+    if not os.path.exists(secrets_path):
+        secrets_path = os.path.abspath(os.path.join(app_root, 'secrets', 'secrets.json'))
     if os.path.exists(secrets_path):
         try:
             with open(secrets_path, 'r', encoding='utf-8') as f:
