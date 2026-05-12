@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="dashboard-layout">
+  <div class="kpi-row">
+    <div class="kpi-card teal">
+      <div class="kpi-label">TOTAL LINKS</div>
+      <div class="kpi-value" id="kpi-total">0</div>
+      <i class="fa-solid fa-layer-group kpi-icon"></i>
+    </div>
+    <div class="kpi-card green">
+      <div class="kpi-label">MW REACHABLE</div>
+      <div class="kpi-value text-teal" id="kpi-reachable" style="color: var(--status-up);">0</div>
+      <i class="fa-solid fa-link kpi-icon"></i>
+    </div>
+    <div class="kpi-card red">
+      <div class="kpi-label">MW UNREACHABLE</div>
+      <div class="kpi-value" id="kpi-unreachable" style="color: var(--status-down);">0</div>
+      <i class="fa-solid fa-link-slash kpi-icon"></i>
+    </div>
+    <div class="kpi-card amber">
+      <div class="kpi-label">HIGH UTILIZATION</div>
+      <div class="kpi-value" id="kpi-high" style="color: var(--status-warning);">0</div>
+      <i class="fa-solid fa-triangle-exclamation kpi-icon"></i>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <div class="table-header">
+      <div class="table-title">
+        ACTIVE LINK INVENTORY <span class="table-count-badge" id="table-count">0 TOTAL</span>
+      </div>
+      <div class="table-actions">
+        <div class="table-filters">
+          <input type="text" id="search-input" class="sidebar-search" placeholder="SEARCH LINK ID OR LEG..." style="font-family: var(--font-body), 'Font Awesome 6 Free'; font-weight: 900; width: 240px;">
+          <select id="status-filter" class="filter-select">
+            <option value="ALL_OPERATIONAL">All statuses</option>
+            <option value="UP">Up</option>
+            <option value="DOWN">Down</option>
+            <option value="TIMEOUT">Timeout</option>
+            <option value="HIGH">High</option>
+          </select>
+          <select id="leg-filter" class="filter-select">
+            <option value="ALL_REGIONS">All regions</option>
+          </select>
+        </div>
+        <div class="table-action-buttons">
+          <button class="btn-primary" id="btn-add-link" title="Add new link"><i class="fa-solid fa-plus"></i> ADD LINK</button>
+          <button class="btn-icon" id="btn-table-download" title="Download inventory CSV"><i class="fa-solid fa-download"></i></button>
+        </div>
+      </div>
+    </div>
+    <div class="table-scroll-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>LINK ID</th>
+            <th>LEG</th>
+            <th>FIBER UTIL</th>
+            <th>MW UTIL</th>
+            <th>STATUS</th>
+            <th>LATENCY</th>
+            <th style="text-align: right;">ACTIONS</th>
+          </tr>
+        </thead>
+        <tbody id="link-table-body"></tbody>
+      </table>
+    </div>
+    <div class="table-footer">
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background: var(--bar-optimal);"></div> OPTIMAL &lt; 70%</div>
+        <div class="legend-item"><div class="legend-dot" style="background: var(--bar-warning);"></div> WARNING 70-90%</div>
+        <div class="legend-item"><div class="legend-dot" style="background: var(--bar-critical);"></div> CRITICAL &gt; 90%</div>
+      </div>
+      <div class="pagination">
+        <span id="page-info">PAGE 1 OF 1</span>
+        <button class="page-btn" id="btn-prev-page"><i class="fa-solid fa-chevron-left"></i></button>
+        <button class="page-btn" id="btn-next-page"><i class="fa-solid fa-chevron-right"></i></button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<script src="{{ url_for('static', filename='js/table.js') }}"></script>
+{% endblock %}

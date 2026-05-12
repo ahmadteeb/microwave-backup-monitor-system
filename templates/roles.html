@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Role Management</h2>
+    <p>Create custom roles and manage their default permissions.</p>
+  </div>
+  <div class="page-actions">
+    <button class="btn-primary" id="btn-add-role"><i class="fa-solid fa-plus"></i> ADD ROLE</button>
+  </div>
+</div>
+<div class="table-container">
+  <table>
+    <thead>
+      <tr>
+        <th>ROLE NAME</th>
+        <th>DESCRIPTION</th>
+        <th>TYPE</th>
+        <th style="text-align: right;">ACTIONS</th>
+      </tr>
+    </thead>
+    <tbody id="roles-table-body"></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block extra_modals %}
+<div class="modal-overlay" id="role-modal">
+  <div class="modal settings-modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fa-solid fa-user-shield text-teal"></i> <span id="role-modal-title">CREATE ROLE</span></div>
+      <button class="modal-close" id="btn-close-role-modal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="role-modal-original-name">
+      <div class="form-group full">
+        <label class="form-label">Role Name</label>
+        <input type="text" id="role-modal-name" class="form-control text-mono" required>
+        <div class="form-helper">Letters, numbers, hyphens, and underscores only. Cannot be changed later.</div>
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Description</label>
+        <input type="text" id="role-modal-description" class="form-control">
+      </div>
+      <div id="role-modal-error" class="auth-error hidden" style="grid-column: span 2;">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span id="role-modal-error-text"></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-actions">
+        <button class="btn-ghost" id="btn-cancel-role-modal">CANCEL</button>
+        <button class="btn-primary" id="btn-save-role-modal"><i class="fa-regular fa-floppy-disk"></i> SAVE ROLE</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="role-permissions-modal">
+  <div class="modal settings-modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fa-solid fa-shield-halved text-teal"></i> ROLE PERMISSIONS</div>
+      <button class="modal-close" id="btn-close-role-permissions"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="role-permissions-name">
+      <p class="text-secondary" style="margin-bottom: 16px;">Editing default permissions for role <strong id="role-permissions-title-name" class="text-teal"></strong></p>
+      <div class="form-helper" style="margin-bottom: 16px;">Toggle switches to set the default permissions for users assigned to this role.</div>
+      <div id="role-permissions-grid" class="permissions-grid"></div>
+      <div id="role-permissions-error" class="auth-error hidden">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span id="role-permissions-error-text"></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-actions">
+        <button class="btn-ghost" id="btn-cancel-role-permissions">CANCEL</button>
+        <button class="btn-primary" id="btn-save-role-permissions"><i class="fa-regular fa-floppy-disk"></i> SAVE PERMISSIONS</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/roles.js') }}"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('roles-table-body')) {
+      loadRoles();
+    }
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="MW Backup Link Monitor System — Real-time microwave link health monitoring, utilization tracking, and network stability analysis for NOC operations.">
+  <title>MW Backup Link Monitor System</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}?v=2">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js" defer></script>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <header class="topbar">
+    <div style="display: flex; align-items: center;">
+      <div class="sys-name text-teal">MW LINK MONITOR</div>
+      <div class="sys-health" id="sys-health-badge">System Healthy</div>
+    </div>
+    <div class="topbar-right">
+      <div class="text-mono">Link Availability (24h): <span id="uptime-val" class="text-teal">99.99%</span></div>
+      <div class="text-mono">Next check: <span id="next-check-val">00:00</span></div>
+      <div class="topbar-icons">
+        <div class="icon-button" id="notifications-button">
+          <i class="fa-regular fa-bell" id="notifications-btn" title="Notifications"></i>
+          <span class="icon-badge" id="notifications-count"></span>
+        </div>
+        <div class="user-menu">
+          <i class="fa-solid fa-circle-user" id="user-menu-btn"></i>
+          <div class="user-dropdown" id="user-dropdown">
+            <div class="user-info">
+              <div class="user-name" id="user-name">Loading...</div>
+              <div class="user-role" id="user-role">Administrator</div>
+            </div>
+            <div class="dropdown-divider"></div>
+            <a href="#" class="dropdown-item" id="settings-link">
+              <i class="fa-solid fa-gear"></i>
+              Settings
+            </a>
+            <a href="#" class="dropdown-item" id="change-password-link">
+              <i class="fa-solid fa-key"></i>
+              Change Password
+            </a>
+            <a href="#" class="dropdown-item" id="logout-btn">
+              <i class="fa-solid fa-right-from-bracket"></i>
+              Logout
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <div class="filter-label" style="margin-bottom: 12px;">NAVIGATION</div>
+      <ul class="nav-menu">
+        <li>
+          <a class="nav-item {{ 'active' if current_page == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}">
+            <i class="fa-solid fa-border-all"></i> Dashboard
+          </a>
+        </li>
+        <li>
+          <a class="nav-item {{ 'active' if current_page == 'users' else '' }}" href="{{ url_for('users') }}">
+            <i class="fa-solid fa-users fa-fw"></i> Users
+          </a>
+        </li>
+        <li>
+          <a class="nav-item {{ 'active' if current_page == 'roles' else '' }}" href="{{ url_for('roles') }}">
+            <i class="fa-solid fa-user-shield fa-fw"></i> Roles
+          </a>
+        </li>
+        <li>
+          <a class="nav-item {{ 'active' if current_page == 'logs' else '' }}" href="{{ url_for('logs') }}">
+            <i class="fa-solid fa-list-ul"></i> System Logs
+          </a>
+        </li>
+      </ul>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+
+  <div class="modal-overlay" id="link-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-sliders text-teal"></i> Configure Link</div>
+        <button class="modal-close" id="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-id">
+        <div class="form-group">
+          <label class="form-label">Link ID</label>
+          <input type="text" id="modal-link-id" class="form-control text-mono">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Leg name</label>
+          <input type="text" id="modal-leg-name" class="form-control text-mono">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Site A node</label>
+          <input type="text" id="modal-site-a" class="form-control text-mono" placeholder="e.g. ALPHA_BASE">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Site B node</label>
+          <input type="text" id="modal-site-b" class="form-control text-mono" placeholder="e.g. DELTA_REPEATER">
+        </div>
+        <div class="form-group full">
+          <label class="form-label required" style="color: var(--accent-teal);">MW IP address</label>
+          <div style="position: relative;">
+            <input type="text" id="modal-mw-ip" class="form-control text-mono" style="width: 100%; border-color: rgba(255,82,82,0);" placeholder="000.000.000.000">
+            <i class="fa-solid fa-circle-exclamation hidden" id="ip-error-icon" style="position: absolute; right: 12px; top: 12px; color: var(--status-down);"></i>
+          </div>
+          <div class="form-helper" id="modal-ip-helper">Required field: Provide a valid IPv4 address for link telemetry.</div>
+        </div>
+        <div class="modal-section">
+          <div class="section-label">RECORD UTILIZATION</div>
+          <div class="form-row">
+            <label>Fiber Util %</label>
+            <input type="number" id="fiber-util-input" class="form-control text-mono" min="0" max="100" step="0.1" placeholder="e.g. 65.5">
+          </div>
+          <div class="form-row">
+            <label>MW Util %</label>
+            <input type="number" id="mw-util-input" class="form-control text-mono" min="0" max="100" step="0.1" placeholder="e.g. 42.0">
+          </div>
+          <div id="metric-message" class="form-helper" style="color: var(--status-down);"></div>
+          <button class="btn btn-sm btn-teal" type="button" id="submit-metric-btn">Record Utilization</button>
+        </div>
+        <div class="modal-section">
+          <div class="section-label">PING HISTORY</div>
+          <div class="chart-panel" style="height: 220px;">
+            <canvas id="ping-history-chart"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="auth-stamp"><i class="fa-regular fa-circle-user"></i> Authenticated user</div>
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-cancel-modal">Cancel</button>
+          <button class="btn-primary" id="btn-save-modal"><i class="fa-regular fa-floppy-disk"></i> Save Link</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="notifications-modal">
+    <div class="modal notifications-modal">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-regular fa-bell text-teal"></i> NOTIFICATIONS</div>
+        <button class="modal-close" id="btn-close-notifications"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="notifications-list" id="notifications-list"></div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-mark-all-read">MARK ALL READ</button>
+          <button class="btn-primary" id="btn-clear-notifications">CLEAR ALL</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="settings-modal">
+    <div class="modal settings-modal">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-gear text-teal"></i> SYSTEM SETTINGS</div>
+        <button class="modal-close" id="btn-close-settings"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-tabs">
+          <div class="tab-buttons">
+            <button class="tab-btn active" data-tab="general">GENERAL</button>
+            <button class="tab-btn" data-tab="smtp">SMTP</button>
+            <button class="tab-btn" data-tab="jumpserver">JUMP SERVER</button>
+            <button class="tab-btn" data-tab="notifications">NOTIFICATIONS</button>
+          </div>
+          <div class="tab-content">
+            <div class="tab-pane active" data-tab="general">
+              <h4>General Settings</h4>
+              <div class="form-group">
+                <label class="form-label">Ping Interval (seconds)</label>
+                <input type="number" id="ping-interval" class="form-control text-mono" min="30" max="3600">
+                <div class="form-helper">How often to check link status (30-3600 seconds)</div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Session Timeout (minutes)</label>
+                <input type="number" id="session-timeout" class="form-control text-mono" min="5" max="1440">
+                <div class="form-helper">Auto-logout after inactivity (5-1440 minutes)</div>
+              </div>
+            </div>
+            <div class="tab-pane" data-tab="smtp">
+              <h4>SMTP Configuration</h4>
+              <div class="form-group">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="smtp-enabled">
+                  <span class="toggle-track"></span>
+                  <span>Enable SMTP</span>
+                </label>
+              </div>
+              <div class="form-group smtp-field">
+                <label class="form-label">SMTP Server</label>
+                <input type="text" id="smtp-server" class="form-control text-mono">
+              </div>
+              <div class="form-group smtp-field">
+                <label class="form-label">SMTP Port</label>
+                <input type="number" id="smtp-port" class="form-control text-mono">
+              </div>
+              <div class="form-group smtp-field">
+                <label class="form-label">Username</label>
+                <input type="text" id="smtp-username" class="form-control text-mono">
+              </div>
+              <div class="form-group smtp-field">
+                <label class="form-label">Password</label>
+                <input type="password" id="smtp-password" class="form-control text-mono">
+              </div>
+              <div class="form-group smtp-field">
+                <label class="form-label">From Email</label>
+                <input type="email" id="smtp-from-email" class="form-control text-mono">
+              </div>
+              <div class="form-group smtp-field">
+                <label class="form-label">Use TLS</label>
+                <select id="smtp-use-tls" class="form-control">
+                  <option value="true">Yes</option>
+                  <option value="false">No</option>
+                </select>
+              </div>
+              <div class="form-actions smtp-field">
+                <button class="btn-primary" id="btn-test-smtp"><i class="fa-solid fa-paper-plane"></i> TEST SMTP</button>
+              </div>
+            </div>
+            <div class="tab-pane" data-tab="jumpserver">
+              <h4>Jump Server Configuration</h4>
+              <div class="form-group">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="jump-enabled">
+                  <span class="toggle-track"></span>
+                  <span>Enable Jump Server</span>
+                </label>
+              </div>
+              <div class="form-group jumpserver-field">
+                <label class="form-label">Host</label>
+                <input type="text" id="jump-host" class="form-control text-mono">
+              </div>
+              <div class="form-group jumpserver-field">
+                <label class="form-label">Port</label>
+                <input type="number" id="jump-port" class="form-control text-mono" min="1" max="65535">
+              </div>
+              <div class="form-group jumpserver-field">
+                <label class="form-label">Username</label>
+                <input type="text" id="jump-username" class="form-control text-mono">
+              </div>
+              <div class="form-group jumpserver-field">
+                <label class="form-label">Password</label>
+                <input type="password" id="jump-password" class="form-control text-mono">
+              </div>
+              <div class="form-actions jumpserver-field">
+                <button class="btn-primary" id="btn-test-jumpserver"><i class="fa-solid fa-plug"></i> TEST CONNECTION</button>
+              </div>
+            </div>
+            <div class="tab-pane" data-tab="notifications">
+              <h4>Notification Preferences</h4>
+              <div class="notification-settings">
+                <div class="setting-item">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="notify-link-up">
+                    <span class="toggle-track"></span>
+                    <span>Link comes back UP</span>
+                  </label>
+                </div>
+                <div class="setting-item">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="notify-link-down">
+                    <span class="toggle-track"></span>
+                    <span>Link goes DOWN</span>
+                  </label>
+                </div>
+                <div class="setting-item">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="notify-high-util">
+                    <span class="toggle-track"></span>
+                    <span>High utilization detected</span>
+                  </label>
+                </div>
+                <div class="setting-item">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="notify-system-error">
+                    <span class="toggle-track"></span>
+                    <span>System errors</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-cancel-settings">CANCEL</button>
+          <button class="btn-primary" id="btn-save-settings"><i class="fa-regular fa-floppy-disk"></i> SAVE SETTINGS</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay hidden" id="change-password-modal">
+    <div class="modal settings-modal">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-key text-teal"></i> Change Password</div>
+        <button class="modal-close" id="btn-close-change-password"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="change-password-form">
+          <div class="form-group full">
+            <label class="form-label">Current Password</label>
+            <input id="current-password" class="form-control" type="password" autocomplete="current-password">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">New Password</label>
+            <input id="new-password" class="form-control" type="password" autocomplete="new-password">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Confirm Password</label>
+            <input id="confirm-password" class="form-control" type="password" autocomplete="new-password">
+          </div>
+          <div id="change-password-error" class="auth-error hidden" style="grid-column: span 2;">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span id="change-password-error-text"></span>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-cancel-change-password">CANCEL</button>
+          <button class="btn-primary" id="btn-save-change-password">SAVE PASSWORD</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% block extra_modals %}{% endblock %}
+
+  <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/dialog.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/notifications.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/user.js') }}"></script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

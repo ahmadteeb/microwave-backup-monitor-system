@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>System Logs</h2>
+    <p>View recent system events, configuration changes, and audit history.</p>
+  </div>
+  <div class="page-actions">
+    <button class="btn-secondary" id="btn-refresh-logs">REFRESH</button>
+    <a href="/api/logs/system/export" class="btn-primary">EXPORT CSV</a>
+  </div>
+</div>
+<div class="table-container">
+  <table>
+    <thead>
+      <tr>
+        <th>TIMESTAMP</th>
+        <th>CATEGORY</th>
+        <th>EVENT</th>
+        <th>ACTOR</th>
+        <th>TARGET</th>
+        <th>DETAIL</th>
+      </tr>
+    </thead>
+    <tbody id="logs-table-body"></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('logs-table-body')) {
+      loadSystemLogs();
+    }
+  });
+</script>
+{% endblock %}

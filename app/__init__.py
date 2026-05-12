@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, timedelta
-from flask import Flask, session, redirect, jsonify, request, render_template
+from flask import Flask, session, redirect, jsonify, request, render_template, url_for
 
 from app.config import Config
 from app.extensions import db, bcrypt, socketio
@@ -186,7 +186,23 @@ def create_app(config_class=Config):
 
     @app.route('/')
     def index():
-        return render_template('index.html')
+        return redirect(url_for('dashboard'))
+
+    @app.route('/dashboard')
+    def dashboard():
+        return render_template('dashboard.html', current_page='dashboard')
+
+    @app.route('/users')
+    def users():
+        return render_template('users.html', current_page='users')
+
+    @app.route('/roles')
+    def roles():
+        return render_template('roles.html', current_page='roles')
+
+    @app.route('/logs')
+    def logs():
+        return render_template('logs.html', current_page='logs')
 
     @app.route('/login')
     def login_page():

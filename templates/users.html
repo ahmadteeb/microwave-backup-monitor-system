@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>User Management</h2>
+    <p>Manage users, roles, and permission overrides for MW Link Monitor.</p>
+  </div>
+  <div class="page-actions">
+    <button class="btn-primary" id="btn-add-user"><i class="fa-solid fa-plus"></i> ADD USER</button>
+  </div>
+</div>
+<div class="table-container">
+  <table>
+    <thead>
+      <tr>
+        <th>NAME</th>
+        <th>USERNAME</th>
+        <th>EMAIL</th>
+        <th>ROLE</th>
+        <th>STATUS</th>
+        <th>LAST LOGIN</th>
+        <th style="text-align: right;">ACTIONS</th>
+      </tr>
+    </thead>
+    <tbody id="users-table-body"></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('users-table-body')) {
+      loadUsers();
+    }
+  });
+</script>
+{% endblock %}
+
+{% block extra_modals %}
+<div class="modal-overlay" id="user-modal">
+  <div class="modal settings-modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fa-solid fa-user-pen text-teal"></i> <span id="user-modal-title">CREATE USER</span></div>
+      <button class="modal-close" id="btn-close-user-modal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="user-modal-id">
+      <div class="form-group">
+        <label class="form-label">Full Name</label>
+        <input type="text" id="user-modal-fullname" class="form-control text-mono" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <input type="text" id="user-modal-username" class="form-control text-mono" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="user-modal-email" class="form-control text-mono" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role</label>
+        <select id="user-modal-role" class="form-control"></select>
+      </div>
+      <div class="form-group" id="user-modal-password-group">
+        <label class="form-label">Password</label>
+        <input type="password" id="user-modal-password" class="form-control" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label class="toggle-switch">
+          <input type="checkbox" id="user-modal-active" checked>
+          <span class="toggle-track"></span>
+          Active
+        </label>
+      </div>
+      <div class="form-group">
+        <label class="toggle-switch">
+          <input type="checkbox" id="user-modal-force-pw" checked>
+          <span class="toggle-track"></span>
+          Force password change
+        </label>
+      </div>
+      <div id="user-modal-error" class="auth-error hidden" style="grid-column: span 2;">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span id="user-modal-error-text"></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-actions">
+        <button class="btn-ghost" id="btn-cancel-user-modal">CANCEL</button>
+        <button class="btn-primary" id="btn-save-user-modal"><i class="fa-regular fa-floppy-disk"></i> SAVE USER</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="reset-password-modal">
+  <div class="modal settings-modal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fa-solid fa-key text-teal"></i> Reset Password</div>
+      <button class="modal-close" id="btn-close-reset-pw"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="reset-pw-user-id">
+      <p class="text-secondary">Reset password for <strong id="reset-pw-username"></strong>.</p>
+      <div class="form-group full">
+        <label class="form-label">New Password</label>
+        <input id="reset-pw-new" class="form-control" type="password">
+      </div>
+      <div class="form-group full">
+        <label class="form-label">Confirm Password</label>
+        <input id="reset-pw-confirm" class="form-control" type="password">
+      </div>
+      <div class="form-group">
+        <label class="toggle-switch">
+          <input type="checkbox" id="reset-pw-force" checked>
+          <span class="toggle-track"></span>
+          Force password change on next login
+        </label>
+      </div>
+      <div id="reset-pw-error" class="auth-error hidden">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span id="reset-pw-error-text"></span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-actions">
+        <button class="btn-ghost" id="btn-cancel-reset-pw">CANCEL</button>
+        <button class="btn-primary" id="btn-save-reset-pw">RESET PASSWORD</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
