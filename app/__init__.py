@@ -117,10 +117,7 @@ def create_app(config_class=Config):
     def _secrets_file_exists():
         app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         secrets_path = os.path.abspath(os.path.join(app_root, 'data', 'secrets', 'secrets.json'))
-        if os.path.exists(secrets_path):
-            return True
-        legacy_path = os.path.abspath(os.path.join(app_root, 'secrets', 'secrets.json'))
-        return os.path.exists(legacy_path)
+        return os.path.exists(secrets_path)
 
     @app.before_request
     def global_before_request():

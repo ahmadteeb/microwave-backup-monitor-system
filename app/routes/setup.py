@@ -20,10 +20,7 @@ DB_ENGINES = {
 
 def _get_db_config_path():
     app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    secrets_path = os.path.abspath(os.path.join(app_root, 'data', 'secrets', 'secrets.json'))
-    if os.path.exists(secrets_path):
-        return secrets_path
-    return os.path.abspath(os.path.join(app_root, 'secrets', 'secrets.json'))
+    return os.path.abspath(os.path.join(app_root, 'data', 'secrets', 'secrets.json'))
 
 
 def _validate_db_payload(db_config):
@@ -323,8 +320,10 @@ def complete_setup():
     try:
         current_app.config['SQLALCHEMY_DATABASE_URI'] = resolved_url
         current_app.config['SECRET_KEY'] = secret_key
-        db.engine.dispose()
-        # Rebind to new engine
+        db.session.remove()
+        if 'sqlalchemy' in current_app.extensions:
+            del current_app.extensions['sqlalchemy']
+        db.init_app(current_app)
         with current_app.app_context():
             db.create_all()
     except Exception as swap_exc:

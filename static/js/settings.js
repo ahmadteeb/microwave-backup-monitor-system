@@ -67,10 +67,10 @@ function populateForm() {
   updateJumpServerFieldVisibility();
 
   // Notification settings
-  document.getElementById('notify-link-up').checked = currentSettings.notifications.link_up || false;
-  document.getElementById('notify-link-down').checked = currentSettings.notifications.link_down || false;
-  document.getElementById('notify-high-util').checked = currentSettings.notifications.high_utilization || false;
-  document.getElementById('notify-system-error').checked = currentSettings.notifications.system_error || false;
+  document.getElementById('notify-link-up').checked = currentSettings.notifications.mw_link_recovered;
+  document.getElementById('notify-link-down').checked = currentSettings.notifications.mw_link_down;
+  document.getElementById('notify-high-util').checked = currentSettings.notifications.mw_util_high;
+  document.getElementById('notify-system-error').checked = currentSettings.notifications.ping_service_error;
 }
 
 // Save settings
@@ -79,6 +79,11 @@ async function saveSettings() {
   const jumpEnabled = document.getElementById('jump-enabled').checked;
   const jumpHost = document.getElementById('jump-host').value.trim();
   
+  const notifyLinkUp = document.getElementById('notify-link-up').checked;
+  const notifyLinkDown = document.getElementById('notify-link-down').checked;
+  const notifyHighUtil = document.getElementById('notify-high-util').checked;
+  const notifySystemError = document.getElementById('notify-system-error').checked;
+
   const settingsData = {
     app: {
       ping_interval_seconds: parseInt(document.getElementById('ping-interval').value),
@@ -101,10 +106,13 @@ async function saveSettings() {
       password: document.getElementById('jump-password').value
     },
     notifications: {
-      link_up: document.getElementById('notify-link-up').checked,
-      link_down: document.getElementById('notify-link-down').checked,
-      high_utilization: document.getElementById('notify-high-util').checked,
-      system_error: document.getElementById('notify-system-error').checked
+      mw_link_recovered: notifyLinkUp,
+      mw_link_down: notifyLinkDown,
+      mw_util_high: notifyHighUtil,
+      fiber_util_high: notifyHighUtil,
+      fiber_util_near_cap: notifyHighUtil,
+      ping_service_error: notifySystemError,
+      consecutive_timeouts: notifySystemError
     }
   };
 

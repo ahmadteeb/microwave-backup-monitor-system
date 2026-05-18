@@ -24,6 +24,8 @@ const errorMessage = document.getElementById('error-message');
 const errorText = document.getElementById('error-text');
 const flaskSecretKey = document.getElementById('session-secret-key');
 const btnGenerateKey = document.getElementById('btn-generate-key');
+const btnTestSmtp = document.getElementById('btn-test-smtp');
+const btnTestJumpServer = document.getElementById('btn-test-jumpserver');
 const dbEngine = document.getElementById('db-engine');
 const dbSqlitePath = document.getElementById('db-sqlite-path');
 const dbHost = document.getElementById('db-host');
@@ -304,6 +306,91 @@ function handlePrev() {
   prevStep();
 }
 
+// Handle test SMTP connection
+async function handleTestSmtp() {
+  if (!validateSmtpConfig()) return;
+  
+  const payload = {
+    host: document.getElementById('smtp-server').value.trim(),
+    port: parseInt(document.getElementById('smtp-port').value, 10),
+    username: document.getElementById('smtp-username').value.trim(),
+    password: document.getElementById('smtp-password').value,
+    from_address: document.getElementById('smtp-from-email').value.trim(),
+    use_tls: document.getElementById('smtp-use-tls').value === 'true',
+    use_ssl: false
+  };
+
+  const originalText = btnTestSmtp.innerHTML;
+  btnTestSmtp.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> TESTING...';
+  btnTestSmtp.disabled = true;
+
+  try {
+    const result = await fetchAPI('/api/setup/test-smtp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (window.showToast) {
+      window.showToast('SMTP Connection Successful', 'success');
+    }
+  } catch (error) {
+    if (window.showAlert) {
+      window.showAlert({
+        title: 'SMTP TEST FAILED',
+        message: error.message || 'Failed to connect to SMTP server.',
+        type: 'error',
+        buttonText: 'CLOSE'
+      });
+    } else {
+      alert(`SMTP Test Failed: ${error.message}`);
+    }
+  } finally {
+    btnTestSmtp.innerHTML = originalText;
+    btnTestSmtp.disabled = false;
+  }
+}
+
+// Handle test jump server connection
+async function handleTestJumpServer() {
+  if (!validateJumpServer()) return;
+
+  const payload = {
+    host: document.getElementById('jump-host').value.trim(),
+    port: parseInt(document.getElementById('jump-port').value, 10),
+    username: document.getElementById('jump-username').value.trim(),
+    password: document.getElementById('jump-password').value
+  };
+
+  const originalText = btnTestJumpServer.innerHTML;
+  btnTestJumpServer.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> TESTING...';
+  btnTestJumpServer.disabled = true;
+
+  try {
+    const result = await fetchAPI('/api/setup/test-jumpserver', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (window.showToast) {
+      window.showToast('Jump Server Connection Successful', 'success');
+    }
+  } catch (error) {
+    if (window.showAlert) {
+      window.showAlert({
+        title: 'JUMP SERVER TEST FAILED',
+        message: error.message || 'Failed to connect to Jump Server.',
+        type: 'error',
+        buttonText: 'CLOSE'
+      });
+    } else {
+      alert(`Jump Server Test Failed: ${error.message}`);
+    }
+  } finally {
+    btnTestJumpServer.innerHTML = originalText;
+    btnTestJumpServer.disabled = false;
+  }
+}
+
 // Build request payload
 function getFormPayload() {
   const smtpActive = smtpEnabled.checked;
@@ -397,6 +484,8 @@ async function handleComplete(event) {
 btnNext.addEventListener('click', handleNext);
 btnPrev.addEventListener('click', handlePrev);
 setupForm.addEventListener('submit', handleComplete);
+if (btnTestSmtp) btnTestSmtp.addEventListener('click', handleTestSmtp);
+if (btnTestJumpServer) btnTestJumpServer.addEventListener('click', handleTestJumpServer);
 
 btnGenerateKey.addEventListener('click', () => {
   const array = new Uint8Array(32);

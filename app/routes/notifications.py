@@ -79,15 +79,27 @@ def clear_notifications():
     return jsonify({'result': 'notifications cleared'}), 200
 
 
+EVENT_KEYS = [
+    'mw_link_down',
+    'mw_link_recovered',
+    'fiber_util_high',
+    'fiber_util_near_cap',
+    'mw_util_high',
+    'consecutive_timeouts',
+    'ping_service_error'
+]
+
 @notifications_bp.route('/subscriptions', methods=['GET'])
 @login_required
 @require_permission('notifications.edit_own')
 def get_subscriptions():
     user = _current_user()
     records = NotificationSubscription.query.filter_by(user_id=user.id).all()
+    sub_dict = {r.event_key: r.is_subscribed for r in records}
+    
     return jsonify({'subscriptions': [
-        {'event_key': r.event_key, 'is_subscribed': r.is_subscribed}
-        for r in records
+        {'event_key': key, 'is_subscribed': sub_dict.get(key, True)}
+        for key in EVENT_KEYS
     ]}), 200
 
 

@@ -24,8 +24,8 @@ def _send_email_notification(user_email, subject, body, smtp_config):
     if not smtp_config:
         return
 
-    password = None
-    if smtp_config.get('password_encrypted'):
+    password = smtp_config.get('password')
+    if not password and smtp_config.get('password_encrypted'):
         try:
             password = decrypt(smtp_config['password_encrypted'])
         except Exception as exc:
@@ -38,7 +38,7 @@ def _send_email_notification(user_email, subject, body, smtp_config):
         else:
             server = smtplib.SMTP(smtp_config['host'], smtp_config['port'], timeout=10)
             server.ehlo()
-            if smtp_config.get('use_tls'):
+            if smtp_config.get('use_tls') and not smtp_config.get('use_ssl'):
                 server.starttls()
                 server.ehlo()
         if smtp_config.get('username') and password:
@@ -77,15 +77,16 @@ def _emit_notification_ws(user_id, notification_data):
 
 def send_event_notification(event_key, message, link_id=None, severity=None):
     severity = severity or EVENT_SEVERITY.get(event_key, 'info')
-    subscriptions = NotificationSubscription.query.filter_by(
-        event_key=event_key,
-        is_subscribed=True
-    ).all()
-    if not subscriptions:
+    subscriptions = NotificationSubscription.query.filter_by(event_key=event_key).all()
+    sub_dict = {sub.user_id: sub.is_subscribed for sub in subscriptions}
+    
+    users = User.query.filter(User.is_active.is_(True)).all()
+    user_ids = [u.id for u in users if sub_dict.get(u.id, True)]
+    
+    if not user_ids:
         return 0
 
-    user_ids = [sub.user_id for sub in subscriptions]
-    users = User.query.filter(User.id.in_(user_ids), User.is_active.is_(True)).all()
+    users = [u for u in users if u.id in user_ids]
     notifications = []
     user_emails = []
 
@@ -123,10 +124,18 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
             smtp_record = SmtpConfig.query.first()
             smtp_config = None
             if smtp_record:
+                decrypted_pass = None
+                if smtp_record.password_encrypted:
+                    try:
+                        decrypted_pass = decrypt(smtp_record.password_encrypted)
+                    except Exception as e:
+                        logger.error(f"Failed to decrypt SMTP password: {e}")
+                        
                 smtp_config = {
                     'host': smtp_record.host,
                     'port': smtp_record.port,
                     'username': smtp_record.username,
+                    'password': decrypted_pass,
                     'password_encrypted': smtp_record.password_encrypted,
                     'from_address': smtp_record.from_address,
                     'use_tls': smtp_record.use_tls,

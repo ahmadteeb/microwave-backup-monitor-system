@@ -4,7 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Initial setup for MW Backup Link Monitor System — Configure database, admin account, SMTP, and jump server settings.">
+  <meta name="description"
+    content="Initial setup for MW Backup Link Monitor System — Configure database, admin account, SMTP, and jump server settings.">
   <title>Setup - MW Backup Link Monitor System</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
@@ -57,7 +58,8 @@
               <input type="text" id="session-secret-key" class="form-control text-mono" required
                 placeholder="Enter or generate secret key">
               <button type="button" id="btn-generate-key" class="auth-btn secondary"
-                style="width: auto; padding: 0 15px; margin-top: 0;"><i class="fa-solid fa-shuffle"></i> GENERATE</button>
+                style="width: auto; padding: 0 15px; margin-top: 0;"><i class="fa-solid fa-shuffle"></i>
+                GENERATE</button>
             </div>
             <div class="form-helper">This key encrypts session cookies and passwords. Keep it secure!</div>
           </div>
@@ -188,6 +190,12 @@
               </select>
             </div>
           </div>
+          <div class="form-group smtp-field hidden" style="display: flex; justify-content: flex-end; margin-top: 24px;">
+            <button type="button" id="btn-test-smtp" class="auth-btn secondary"
+              style="width: auto; padding: 12px 24px; margin: 0; font-size: 13px; letter-spacing: 0.5px;">
+              <i class="fa-solid fa-vial"></i> TEST CONNECTION
+            </button>
+          </div>
         </div>
 
         <!-- Step 4: Jump Server -->
@@ -226,6 +234,14 @@
               <label class="form-label">PASSWORD</label>
               <input type="password" id="jump-password" class="form-control text-mono">
               <div class="form-helper">SSH password for jump server access</div>
+            </div>
+
+            <div class="form-group jump-field hidden"
+              style="display: flex; justify-content: flex-end; margin-top: 24px;">
+              <button type="button" id="btn-test-jumpserver" class="auth-btn secondary"
+                style="width: auto; padding: 12px 24px; margin: 0; font-size: 13px; letter-spacing: 0.5px;">
+                <i class="fa-solid fa-vial"></i> TEST CONNECTION
+              </button>
             </div>
           </div>
         </div>

@@ -196,9 +196,11 @@ def get_user_subscriptions(id):
     if not user:
         return jsonify({'error': 'User not found'}), 404
     records = NotificationSubscription.query.filter_by(user_id=user.id).all()
+    sub_dict = {r.event_key: r.is_subscribed for r in records}
+    
     return jsonify({'subscriptions': [
-        {'event_key': r.event_key, 'is_subscribed': r.is_subscribed}
-        for r in records
+        {'event_key': key, 'is_subscribed': sub_dict.get(key, True)}
+        for key in EVENT_KEYS
     ]}), 200
 
 
