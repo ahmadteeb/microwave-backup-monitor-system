@@ -3,9 +3,10 @@ import io
 import re
 from datetime import datetime
 from flask import Blueprint, request, jsonify, Response
-from app.models import db, Link, PingResult, MetricSnapshot, AppSettings, LinkStatus
+from app.models import db, Link, PingResult, MetricSnapshot, AppSettings, LinkStatus, LegUtilizationSnapshot
 from app.services.ping_service import ping_single_link
 from app.services.notification_service import send_event_notification
+from app.services.external_util_service import lookup_link_info, lookup_leg_info
 from app.permissions import login_required, require_permission
 
 links_bp = Blueprint('links', __name__, url_prefix='/api/links')
@@ -18,6 +19,7 @@ def serialize_link(link):
     # Get latest ping result
     latest_ping = link.ping_results.order_by(PingResult.timestamp.desc()).first()
     latest_metric = link.metrics.order_by(MetricSnapshot.timestamp.desc()).first()
+    latest_capacity_metric = link.metrics.filter(MetricSnapshot.mw_capacity_mbps.isnot(None)).order_by(MetricSnapshot.timestamp.desc()).first()
     
     status = 'UNKNOWN'
     if link.status:
@@ -47,12 +49,22 @@ def serialize_link(link):
         metric_data = {
             "fiber_util_pct": latest_metric.fiber_util_pct,
             "mw_util_pct": latest_metric.mw_util_pct,
+            "mw_capacity_mbps": latest_capacity_metric.mw_capacity_mbps if latest_capacity_metric else latest_metric.mw_capacity_mbps,
             "timestamp": latest_metric.timestamp.isoformat() + "Z"
         }
         settings = db.session.get(AppSettings, 1)
         warn_pct = settings.util_warning_threshold_pct if settings else 70.0
         if status == 'UP' and latest_metric.mw_util_pct is not None and latest_metric.mw_util_pct >= warn_pct:
             status = 'HIGH'
+
+    leg_util_pct = None
+    if link.leg_name:
+        latest_leg = LegUtilizationSnapshot.query.filter_by(leg_name=link.leg_name).order_by(LegUtilizationSnapshot.timestamp.desc()).first()
+        if latest_leg and latest_leg.interface_speed_max:
+            try:
+                leg_util_pct = round((float(latest_leg.avg_max_mbitrate or 0) / float(latest_leg.interface_speed_max)) * 100, 1)
+            except (TypeError, ValueError, ZeroDivisionError):
+                leg_util_pct = None
 
     return {
         "id": link.id,
@@ -66,6 +78,7 @@ def serialize_link(link):
         "link_type": link.link_type,
         "notes": link.notes,
         "status": status,
+        "leg_util_pct": leg_util_pct,
         "latency_ms": latency,
         "latest_ping": ping_data,
         "latest_metric": metric_data
@@ -136,7 +149,7 @@ def export_links():
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Link ID", "Leg", "Site A", "Site B", "MW IP", "Equipment A", "Equipment B", "Link Type", "Status", "Latency ms", "Fiber Util %", "MW Util %", "Last Ping"])
+    writer.writerow(["Link ID", "Leg", "Site A", "Site B", "LEG Util %", "MW IP", "Equipment A", "Equipment B", "Link Type", "Status", "Latency ms", "Fiber Util %", "MW Util %", "Link Cap Mbps", "Last Ping"])
 
     for link in exported:
         writer.writerow([
@@ -144,6 +157,7 @@ def export_links():
             link["leg_name"],
             link["site_a"],
             link["site_b"],
+            link["leg_util_pct"] if link["leg_util_pct"] is not None else '',
             link["mw_ip"],
             link["equipment_a"],
             link["equipment_b"],
@@ -152,6 +166,7 @@ def export_links():
             link["latency_ms"] if link["latency_ms"] is not None else '',
             link["latest_metric"]["fiber_util_pct"] if link["latest_metric"] else '',
             link["latest_metric"]["mw_util_pct"] if link["latest_metric"] else '',
+            link["latest_metric"]["mw_capacity_mbps"] if link["latest_metric"] else '',
             link["latest_ping"]["timestamp"] if link["latest_ping"] else ''
         ])
 
@@ -189,6 +204,99 @@ def create_link():
     db.session.commit()
 
     return jsonify(serialize_link(link)), 201
+
+def _resolve_external_capacity(row):
+    capacity = row.get('XPIC_MW_Link_Capacity')
+    if capacity is None:
+        capacity = row.get('MW_Link_Capacity')
+    return capacity
+
+
+def _persist_external_link_metrics(link, row):
+    if row.get('Source_NE_Card'):
+        link.site_a = row.get('Source_NE_Card')
+    if row.get('Sink_NE_Card'):
+        link.site_b = row.get('Sink_NE_Card')
+
+    snapshot = MetricSnapshot(
+        link_id=link.id,
+        fiber_util_pct=None,
+        mw_util_pct=row.get('AVG_MAX_Util_RxTx_perc'),
+        mw_capacity_mbps=_resolve_external_capacity(row),
+        source='external'
+    )
+    db.session.add(snapshot)
+
+    status = LinkStatus.query.filter_by(link_id=link.id).first()
+    if status:
+        status.mw_util_pct = snapshot.mw_util_pct
+        status.last_metric_at = datetime.utcnow()
+
+    link.updated_at = datetime.utcnow()
+    db.session.commit()
+
+@links_bp.route('/lookup', methods=['POST'])
+@login_required
+@require_permission('links.view')
+def lookup_external_link():
+    data = request.get_json() or {}
+    link_id = data.get('link_id', '').strip()
+    if not link_id:
+        return jsonify({'error': 'Missing required field: link_id'}), 400
+
+    try:
+        row = lookup_link_info(link_id)
+    except RuntimeError as exc:
+        return jsonify({'error': str(exc)}), 503
+    except Exception as exc:
+        return jsonify({'error': f'External lookup failed: {exc}'}), 500
+
+    if not row:
+        return jsonify({'error': 'Link not found in external utilization database'}), 404
+
+    link = Link.query.filter_by(link_id=link_id).first()
+    if link:
+        try:
+            _persist_external_link_metrics(link, row)
+        except Exception:
+            db.session.rollback()
+
+    return jsonify({'external': row}), 200
+
+@links_bp.route('/lookup-leg', methods=['POST'])
+@login_required
+@require_permission('links.view')
+def lookup_external_leg():
+    data = request.get_json() or {}
+    leg_name = data.get('leg_name', '').strip()
+    if not leg_name:
+        return jsonify({'error': 'Missing required field: leg_name'}), 400
+
+    try:
+        row = lookup_leg_info(leg_name)
+    except RuntimeError as exc:
+        return jsonify({'error': str(exc)}), 503
+    except Exception as exc:
+        return jsonify({'error': f'External lookup failed: {exc}'}), 500
+
+    if not row:
+        return jsonify({'error': 'LEG not found in external utilization database'}), 404
+
+    try:
+        snapshot = LegUtilizationSnapshot(
+            leg_name=row.get('LEG_Name'),
+            avg_max_mbitrate=row.get('AVG_MAX_MBitRate'),
+            interface_speed_min=row.get('Interface_Speed_Min'),
+            interface_speed_max=row.get('Interface_Speed_Max'),
+            sub_leg_count=row.get('Sub_LEG_Count'),
+            source='external'
+        )
+        db.session.add(snapshot)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    return jsonify({'external': row}), 200
 
 @links_bp.route('/<int:id>', methods=['GET'])
 @login_required

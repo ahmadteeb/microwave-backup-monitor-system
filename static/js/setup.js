@@ -33,6 +33,14 @@ const dbPort = document.getElementById('db-port');
 const dbUsername = document.getElementById('db-username');
 const dbPassword = document.getElementById('db-password');
 const dbDatabase = document.getElementById('db-database');
+const externalDbEnabled = document.getElementById('external-db-enabled');
+const externalDbFields = document.querySelector('.external-db-fields');
+const externalDbHost = document.getElementById('external-db-host');
+const externalDbPort = document.getElementById('external-db-port');
+const externalDbUsername = document.getElementById('external-db-username');
+const externalDbPassword = document.getElementById('external-db-password');
+const externalDbDatabase = document.getElementById('external-db-database');
+const btnTestExternalDb = document.getElementById('btn-test-external-db');
 const adminFullName = document.getElementById('admin-full-name');
 const smtpEnabled = document.getElementById('smtp-enabled');
 const smtpFields = document.querySelectorAll('.smtp-field');
@@ -95,6 +103,8 @@ function refreshVisibility() {
     }
   }
 
+  externalDbFields.classList.toggle('hidden', !externalDbEnabled.checked);
+
   smtpFields.forEach(field => {
     field.classList.toggle('hidden', !smtpEnabled.checked);
   });
@@ -145,6 +155,39 @@ function validateCurrentStep() {
   }
 }
 
+function validateExternalDbConfig() {
+  if (!externalDbEnabled.checked) {
+    return true;
+  }
+
+  const host = externalDbHost.value.trim();
+  const port = parseInt(externalDbPort.value, 10);
+  const username = externalDbUsername.value.trim();
+  const database = externalDbDatabase.value.trim();
+
+  if (!host) {
+    showError('External DB host is required when enabled.');
+    return false;
+  }
+
+  if (!port || port < 1 || port > 65535) {
+    showError('Valid external DB port is required.');
+    return false;
+  }
+
+  if (!username) {
+    showError('External DB username is required when enabled.');
+    return false;
+  }
+
+  if (!database) {
+    showError('External DB database name is required when enabled.');
+    return false;
+  }
+
+  return true;
+}
+
 // Validate database config step
 function validateDatabaseConfig() {
   const secretKey = flaskSecretKey.value.trim();
@@ -163,6 +206,9 @@ function validateDatabaseConfig() {
   if (engine === 'sqlite') {
     if (!sqlitePath) {
       showError('SQLite path is required.');
+      return false;
+    }
+    if (!validateExternalDbConfig()) {
       return false;
     }
     return true;
@@ -185,6 +231,10 @@ function validateDatabaseConfig() {
 
   if (!database) {
     showError('Database name is required.');
+    return false;
+  }
+
+  if (!validateExternalDbConfig()) {
     return false;
   }
 
@@ -350,6 +400,45 @@ async function handleTestSmtp() {
   }
 }
 
+// Handle test external DB connection
+async function handleTestExternalDb() {
+  if (!externalDbEnabled.checked) {
+    window.showToast('Enable the external DB before testing.', 'warning');
+    return;
+  }
+
+  const payload = {
+    host: externalDbHost.value.trim(),
+    port: parseInt(externalDbPort.value, 10),
+    username: externalDbUsername.value.trim(),
+    password: externalDbPassword.value,
+    database: externalDbDatabase.value.trim()
+  };
+
+  if (!payload.host || !payload.port || !payload.username || !payload.database) {
+    showError('Fill required external DB fields before testing.');
+    return;
+  }
+
+  const originalText = btnTestExternalDb.innerHTML;
+  btnTestExternalDb.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> TESTING...';
+  btnTestExternalDb.disabled = true;
+
+  try {
+    await fetchAPI('/api/setup/test-external-db', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    window.showToast('External util DB connection successful', 'success');
+  } catch (error) {
+    window.showToast('External DB test failed: ' + error.message, 'error');
+  } finally {
+    btnTestExternalDb.innerHTML = originalText;
+    btnTestExternalDb.disabled = false;
+  }
+}
+
 // Handle test jump server connection
 async function handleTestJumpServer() {
   if (!validateJumpServer()) return;
@@ -421,8 +510,16 @@ function getFormPayload() {
         use_tls: document.getElementById('smtp-use-tls').value === 'true',
         use_ssl: false
       }
-      : {}
-    ,
+      : {},
+    external_db_config: externalDbEnabled.checked
+      ? {
+        host: externalDbHost.value.trim(),
+        port: parseInt(externalDbPort.value, 10),
+        username: externalDbUsername.value.trim(),
+        password: externalDbPassword.value,
+        database: externalDbDatabase.value.trim()
+      }
+      : {},
     jumpserver: {
       host: document.getElementById('jump-host').value.trim(),
       port: parseInt(document.getElementById('jump-port').value, 10),
@@ -486,6 +583,7 @@ btnPrev.addEventListener('click', handlePrev);
 setupForm.addEventListener('submit', handleComplete);
 if (btnTestSmtp) btnTestSmtp.addEventListener('click', handleTestSmtp);
 if (btnTestJumpServer) btnTestJumpServer.addEventListener('click', handleTestJumpServer);
+if (btnTestExternalDb) btnTestExternalDb.addEventListener('click', handleTestExternalDb);
 
 btnGenerateKey.addEventListener('click', () => {
   const array = new Uint8Array(32);
@@ -496,6 +594,7 @@ btnGenerateKey.addEventListener('click', () => {
   }
 });
 
+externalDbEnabled.addEventListener('change', refreshVisibility);
 dbEngine.addEventListener('change', refreshVisibility);
 smtpEnabled.addEventListener('change', refreshVisibility);
 jumpEnabled.addEventListener('change', refreshVisibility);

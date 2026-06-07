@@ -61,10 +61,30 @@ def _build_db_uri(db_config):
     return f'{driver}://{username}:{password}@{host}:{port}/{database}'
 
 
-def _save_secrets(db_config, database_url, secret_key):
+def _build_external_db_uri(external_db_config):
+    if not external_db_config:
+        return None
+    driver = DB_ENGINES.get('mysql')
+    username = quote_plus(str(external_db_config.get('username', '')).strip())
+    password = quote_plus(str(external_db_config.get('password', '') or ''))
+    host = external_db_config.get('host', '').strip()
+    port = int(external_db_config.get('port', 3306))
+    database = external_db_config.get('database', '').strip()
+    return f'{driver}://{username}:{password}@{host}:{port}/{database}?charset=utf8mb4'
+
+
+def _save_secrets(db_config, database_url, secret_key, external_database_url=None, external_db_config=None):
     config_path = _get_db_config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
-    config_json = json.dumps({'database_url': database_url, 'db_config': db_config}, indent=2)
+    payload = {
+        'database_url': database_url,
+        'db_config': db_config
+    }
+    if external_database_url:
+        payload['external_util_database_url'] = external_database_url
+    if external_db_config:
+        payload['external_db_config'] = external_db_config
+    config_json = json.dumps(payload, indent=2)
     from app.services.crypto_service import encrypt_with_key
     encrypted_data = encrypt_with_key(config_json, secret_key)
     with open(config_path, 'w', encoding='utf-8') as f:
@@ -136,6 +156,18 @@ def _validate_setup_payload(data):
         if not jumpserver.get('password'):
             errors['jumpserver.password'] = 'Jump server password is required.'
 
+    external_db_config = data.get('external_db_config', {})
+    if data.get('external_db_config'):
+        if external_db_config.get('host') or external_db_config.get('port') or external_db_config.get('username') or external_db_config.get('database'):
+            if not external_db_config.get('host'):
+                errors['external_db_config.host'] = 'External DB host is required.'
+            if not external_db_config.get('port'):
+                errors['external_db_config.port'] = 'External DB port is required.'
+            if not external_db_config.get('username'):
+                errors['external_db_config.username'] = 'External DB username is required.'
+            if not external_db_config.get('database'):
+                errors['external_db_config.database'] = 'External DB database is required.'
+
     return errors
 
 
@@ -181,6 +213,32 @@ def test_jumpserver():
         ssh.connect()
         ssh.disconnect()
         return jsonify({'result': 'Jump server connection successful'}), 200
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
+@setup_bp.route('/test-external-db', methods=['POST'])
+def test_external_db():
+    data = request.get_json() or {}
+    if not data.get('host') or not data.get('port') or not data.get('username') or not data.get('database'):
+        return jsonify({'error': 'Missing external DB host, port, username, or database.'}), 400
+
+    try:
+        import sqlalchemy
+        from sqlalchemy.engine import URL
+        external_db_url = URL.create(
+            drivername='mysql+pymysql',
+            username=data['username'].strip() or None,
+            password=data.get('password', '').strip() or None,
+            host=data['host'].strip(),
+            port=int(data['port']),
+            database=data['database'].strip(),
+            query={'charset': 'utf8mb4'}
+        )
+        engine = sqlalchemy.create_engine(external_db_url, pool_pre_ping=True, connect_args={'charset': 'utf8mb4', 'use_unicode': True})
+        conn = engine.connect()
+        conn.close()
+        return jsonify({'result': 'External DB connection successful'}), 200
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500
 
@@ -314,7 +372,14 @@ def complete_setup():
         db.session.add(current_setup_state)
         db.session.commit()
 
-    _save_secrets(db_config, database_url, secret_key)
+    external_db_config = data.get('external_db_config', {})
+    external_database_url = None
+    if external_db_config and any(external_db_config.get(k) for k in ('host', 'port', 'username', 'database')):
+        external_database_url = _build_external_db_uri(external_db_config)
+
+    _save_secrets(db_config, database_url, secret_key, external_database_url, external_db_config)
+    if external_database_url:
+        current_app.config['SQLALCHEMY_EXTERNAL_UTIL_DATABASE_URI'] = external_database_url
 
     # Hot-swap the running app's database to the new URI so login works without restart
     try:

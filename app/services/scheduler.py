@@ -2,6 +2,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import threading
 import logging
 from app.services.ping_service import run_ping_cycle, set_app_instance
+from app.services.external_util_service import refresh_external_utilization
 from app.extensions import db
 from app.models import AppSettings
 
@@ -33,6 +34,19 @@ def ping_job():
     finally:
         _ping_lock.release()
 
+def external_util_job():
+    global _app_instance
+    if not _app_instance:
+        logger.error('No app instance available for external utilization job')
+        return
+
+    with _app_instance.app_context():
+        try:
+            refresh_external_utilization()
+        except Exception as exc:
+            logger.error(f'Error refreshing external utilization: {exc}')
+
+
 def init_scheduler(app):
     global _scheduler_instance, _app_instance
     
@@ -61,6 +75,17 @@ def init_scheduler(app):
         replace_existing=True
     )
     
+    scheduler.add_job(
+        func=external_util_job,
+        trigger='interval',
+        days=1,
+        id='external_util_refresh',
+        max_instances=1,
+        misfire_grace_time=3600,
+        coalesce=True,
+        replace_existing=True
+    )
+
     scheduler.start()
     _scheduler_instance = scheduler
     logger.info(f"Scheduler started with {interval}s interval")

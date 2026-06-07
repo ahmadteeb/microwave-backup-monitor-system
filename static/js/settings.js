@@ -8,6 +8,8 @@ const tabButtons = document.querySelectorAll('.tab-btn');
 const tabPanes = document.querySelectorAll('.tab-pane');
 const btnTestSmtp = document.getElementById('btn-test-smtp');
 const btnTestJumpserver = document.getElementById('btn-test-jumpserver');
+const btnTestExternalDb = document.getElementById('btn-test-external-db');
+const externalDbEnabledCheckbox = document.getElementById('external-db-enabled');
 const jumpEnabledCheckbox = document.getElementById('jump-enabled');
 
 // Current settings data
@@ -16,10 +18,11 @@ let currentSettings = {};
 // Load settings
 async function loadSettings() {
   try {
-    const [appSettings, smtpSettings, jumpSettings, notificationSettings] = await Promise.all([
+    const [appSettings, smtpSettings, jumpSettings, externalDbSettings, notificationSettings] = await Promise.all([
       window.fetchAPI('/api/settings/app'),
       window.fetchAPI('/api/settings/smtp'),
       window.fetchAPI('/api/settings/jumpserver'),
+      window.fetchAPI('/api/settings/external-db'),
       window.fetchAPI('/api/notifications/subscriptions')
     ]);
 
@@ -32,6 +35,7 @@ async function loadSettings() {
       app: appSettings.app || {},
       smtp: smtpSettings.smtp || {},
       jump: jumpSettings.jumpserver || {},
+      external_db: externalDbSettings.external_db || {},
       notifications: notificationMap
     };
 
@@ -65,6 +69,15 @@ function populateForm() {
   document.getElementById('jump-username').value = currentSettings.jump.username || '';
   document.getElementById('jump-password').value = currentSettings.jump.password || '';
   updateJumpServerFieldVisibility();
+
+  // External DB settings
+  document.getElementById('external-db-enabled').checked = currentSettings.external_db.enabled || false;
+  document.getElementById('external-db-host').value = currentSettings.external_db.host || '';
+  document.getElementById('external-db-port').value = currentSettings.external_db.port || 3306;
+  document.getElementById('external-db-username').value = currentSettings.external_db.username || '';
+  document.getElementById('external-db-password').value = currentSettings.external_db.password || '';
+  document.getElementById('external-db-database').value = currentSettings.external_db.database || '';
+  updateExternalDbFieldVisibility();
 
   // Notification settings
   document.getElementById('notify-link-up').checked = currentSettings.notifications.mw_link_recovered;
@@ -104,6 +117,14 @@ async function saveSettings() {
       port: parseInt(document.getElementById('jump-port').value),
       username: document.getElementById('jump-username').value.trim(),
       password: document.getElementById('jump-password').value
+    },
+    external_db: {
+      enabled: document.getElementById('external-db-enabled').checked,
+      host: document.getElementById('external-db-host').value.trim(),
+      port: parseInt(document.getElementById('external-db-port').value),
+      username: document.getElementById('external-db-username').value.trim(),
+      password: document.getElementById('external-db-password').value,
+      database: document.getElementById('external-db-database').value.trim()
     },
     notifications: {
       mw_link_recovered: notifyLinkUp,
@@ -149,6 +170,12 @@ async function saveSettings() {
       body: JSON.stringify(settingsData.jump)
     }));
 
+    promises.push(window.fetchAPI('/api/settings/external-db', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settingsData.external_db)
+    }));
+
     await Promise.all(promises);
 
     window.showToast('Settings saved successfully', 'success');
@@ -178,6 +205,14 @@ function updateJumpServerFieldVisibility() {
     field.classList.toggle('hidden', !enabled);
   });
   btnTestJumpserver.disabled = !enabled;
+}
+
+function updateExternalDbFieldVisibility() {
+  const enabled = document.getElementById('external-db-enabled').checked;
+  document.querySelectorAll('.external-db-field').forEach(field => {
+    field.classList.toggle('hidden', !enabled);
+  });
+  btnTestExternalDb.disabled = !enabled;
 }
 
 // Test SMTP connection
@@ -254,6 +289,41 @@ async function testJumpserver() {
   }
 }
 
+async function testExternalDb() {
+  if (!document.getElementById('external-db-enabled').checked) {
+    await window.showAlert({
+      title: 'External DB Disabled',
+      message: 'External database lookup is disabled. Enable it before testing.',
+      type: 'warning'
+    });
+    return;
+  }
+
+  const externalDbData = {
+    host: document.getElementById('external-db-host').value.trim(),
+    port: parseInt(document.getElementById('external-db-port').value),
+    username: document.getElementById('external-db-username').value.trim(),
+    password: document.getElementById('external-db-password').value,
+    database: document.getElementById('external-db-database').value.trim()
+  };
+
+  window.setButtonLoading(btnTestExternalDb, true, 'TESTING...');
+
+  try {
+    await window.fetchAPI('/api/settings/external-db/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(externalDbData)
+    });
+    window.showToast('External DB connection successful!', 'success');
+  } catch (error) {
+    console.error("External DB test failed", error);
+    window.showToast('External DB test failed: ' + error.message, 'error');
+  } finally {
+    window.setButtonLoading(btnTestExternalDb, false);
+  }
+}
+
 // Switch tabs
 function switchTab(tabName) {
   tabButtons.forEach(btn => {
@@ -288,8 +358,10 @@ btnCancelSettings.addEventListener('click', hideSettingsModal);
 btnSaveSettings.addEventListener('click', saveSettings);
 btnTestSmtp.addEventListener('click', testSmtp);
 btnTestJumpserver.addEventListener('click', testJumpserver);
+btnTestExternalDb.addEventListener('click', testExternalDb);
 document.getElementById('smtp-enabled').addEventListener('change', updateSmtpFieldVisibility);
 document.getElementById('jump-enabled').addEventListener('change', updateJumpServerFieldVisibility);
+document.getElementById('external-db-enabled').addEventListener('change', updateExternalDbFieldVisibility);
 
 // Tab switching
 tabButtons.forEach(btn => {

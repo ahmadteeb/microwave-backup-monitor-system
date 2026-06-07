@@ -102,6 +102,43 @@
               <input type="text" id="db-database" class="form-control text-mono" placeholder="mw_monitor">
             </div>
           </div>
+
+          <div class="form-group">
+            <label class="toggle-switch">
+              <input type="checkbox" id="external-db-enabled">
+              <span class="toggle-track"></span>
+              <span>Enable External Utilization DB</span>
+            </label>
+            <div class="form-helper">Optional. Use this to fetch link/LEG metadata from the external MySQL tables.</div>
+          </div>
+
+          <div class="external-db-fields hidden">
+            <div class="form-group">
+              <label class="form-label">External DB HOST</label>
+              <input type="text" id="external-db-host" class="form-control text-mono" placeholder="127.0.0.1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">External DB PORT</label>
+              <input type="number" id="external-db-port" class="form-control text-mono" value="3306">
+            </div>
+            <div class="form-group">
+              <label class="form-label">External DB USERNAME</label>
+              <input type="text" id="external-db-username" class="form-control text-mono">
+            </div>
+            <div class="form-group">
+              <label class="form-label">External DB PASSWORD</label>
+              <input type="password" id="external-db-password" class="form-control text-mono">
+            </div>
+            <div class="form-group">
+              <label class="form-label">External DB NAME</label>
+              <input type="text" id="external-db-database" class="form-control text-mono" placeholder="pandq_database">
+            </div>
+            <div class="form-group" style="display: flex; justify-content: flex-end; margin-top: 14px;">
+              <button type="button" id="btn-test-external-db" class="auth-btn secondary" style="width: auto; padding: 12px 24px;">
+                <i class="fa-solid fa-vial"></i> TEST EXTERNAL DB
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Step 2: Admin User -->

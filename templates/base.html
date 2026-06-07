@@ -85,20 +85,26 @@
 
 
   <div class="modal-overlay" id="link-modal">
-    <div class="modal">
+    <div class="modal link-modal">
       <div class="modal-header">
-        <div class="modal-title"><i class="fa-solid fa-sliders text-teal"></i> Configure Link</div>
+        <div class="modal-title"><i class="fa-solid fa-link text-teal"></i> Configure Link</div>
         <button class="modal-close" id="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="modal-id">
         <div class="form-group">
           <label class="form-label">Link ID</label>
-          <input type="text" id="modal-link-id" class="form-control text-mono">
+          <div class="input-group">
+            <input type="text" id="modal-link-id" class="form-control text-mono" placeholder="Enter link identifier">
+            <button class="btn-secondary btn-inline" type="button" id="btn-fetch-link-info"><i class="fa-solid fa-magnifying-glass"></i> FETCH</button>
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label">Leg name</label>
-          <input type="text" id="modal-leg-name" class="form-control text-mono">
+          <div class="input-group">
+            <input type="text" id="modal-leg-name" class="form-control text-mono" placeholder="Enter leg name">
+            <button class="btn-secondary btn-inline" type="button" id="btn-fetch-leg-info"><i class="fa-solid fa-magnifying-glass"></i> FETCH</button>
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label">Site A node</label>
@@ -108,33 +114,22 @@
           <label class="form-label">Site B node</label>
           <input type="text" id="modal-site-b" class="form-control text-mono" placeholder="e.g. DELTA_REPEATER">
         </div>
+        <div class="modal-section" id="external-lookup-section" style="display: none;">
+          <div class="section-label">External lookup results</div>
+          <div class="external-lookup-grid">
+            <div id="external-link-details" class="info-list"></div>
+            <div id="external-leg-details" class="info-list"></div>
+          </div>
+        </div>
         <div class="form-group full">
-          <label class="form-label required" style="color: var(--accent-teal);">MW IP address</label>
-          <div style="position: relative;">
-            <input type="text" id="modal-mw-ip" class="form-control text-mono" style="width: 100%; border-color: rgba(255,82,82,0);" placeholder="000.000.000.000">
-            <i class="fa-solid fa-circle-exclamation hidden" id="ip-error-icon" style="position: absolute; right: 12px; top: 12px; color: var(--status-down);"></i>
+          <label class="form-label required">MW IP address</label>
+          <div class="input-group">
+            <input type="text" id="modal-mw-ip" class="form-control text-mono" placeholder="000.000.000.000">
+            <i class="fa-solid fa-circle-exclamation hidden" id="ip-error-icon"></i>
           </div>
           <div class="form-helper" id="modal-ip-helper">Required field: Provide a valid IPv4 address for link telemetry.</div>
         </div>
-        <div class="modal-section">
-          <div class="section-label">RECORD UTILIZATION</div>
-          <div class="form-row">
-            <label>Fiber Util %</label>
-            <input type="number" id="fiber-util-input" class="form-control text-mono" min="0" max="100" step="0.1" placeholder="e.g. 65.5">
-          </div>
-          <div class="form-row">
-            <label>MW Util %</label>
-            <input type="number" id="mw-util-input" class="form-control text-mono" min="0" max="100" step="0.1" placeholder="e.g. 42.0">
-          </div>
-          <div id="metric-message" class="form-helper" style="color: var(--status-down);"></div>
-          <button class="btn btn-sm btn-teal" type="button" id="submit-metric-btn">Record Utilization</button>
-        </div>
-        <div class="modal-section">
-          <div class="section-label">PING HISTORY</div>
-          <div class="chart-panel" style="height: 220px;">
-            <canvas id="ping-history-chart"></canvas>
-          </div>
-        </div>
+        <!-- Record utilization removed from Add/Edit link dialog per UX request -->
       </div>
       <div class="modal-footer">
         <div class="auth-stamp"><i class="fa-regular fa-circle-user"></i> Authenticated user</div>
@@ -145,7 +140,6 @@
       </div>
     </div>
   </div>
-
   <div class="modal-overlay" id="notifications-modal">
     <div class="modal notifications-modal">
       <div class="modal-header">
@@ -176,6 +170,7 @@
             <button class="tab-btn active" data-tab="general">GENERAL</button>
             <button class="tab-btn" data-tab="smtp">SMTP</button>
             <button class="tab-btn" data-tab="jumpserver">JUMP SERVER</button>
+            <button class="tab-btn" data-tab="external-db">EXTERNAL DB</button>
             <button class="tab-btn" data-tab="notifications">NOTIFICATIONS</button>
           </div>
           <div class="tab-content">
@@ -259,6 +254,39 @@
               </div>
               <div class="form-actions jumpserver-field">
                 <button class="btn-primary" id="btn-test-jumpserver"><i class="fa-solid fa-plug"></i> TEST CONNECTION</button>
+              </div>
+            </div>
+            <div class="tab-pane" data-tab="external-db">
+              <h4>External MySQL Database</h4>
+              <div class="form-group">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="external-db-enabled">
+                  <span class="toggle-track"></span>
+                  <span>Enable External DB Lookup</span>
+                </label>
+              </div>
+              <div class="form-group external-db-field">
+                <label class="form-label">External DB Host</label>
+                <input type="text" id="external-db-host" class="form-control text-mono">
+              </div>
+              <div class="form-group external-db-field">
+                <label class="form-label">External DB Port</label>
+                <input type="number" id="external-db-port" class="form-control text-mono" min="1" max="65535">
+              </div>
+              <div class="form-group external-db-field">
+                <label class="form-label">Username</label>
+                <input type="text" id="external-db-username" class="form-control text-mono">
+              </div>
+              <div class="form-group external-db-field">
+                <label class="form-label">Password</label>
+                <input type="password" id="external-db-password" class="form-control text-mono">
+              </div>
+              <div class="form-group external-db-field">
+                <label class="form-label">Database Name</label>
+                <input type="text" id="external-db-database" class="form-control text-mono">
+              </div>
+              <div class="form-actions external-db-field">
+                <button class="btn-primary" id="btn-test-external-db"><i class="fa-solid fa-database"></i> TEST CONNECTION</button>
               </div>
             </div>
             <div class="tab-pane" data-tab="notifications">

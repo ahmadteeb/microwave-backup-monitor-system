@@ -42,6 +42,16 @@ class MetricSnapshot(db.Model):
     mw_capacity_mbps = db.Column(db.Float, nullable=True)
     source = db.Column(db.String(20), nullable=True, default='manual')
 
+class LegUtilizationSnapshot(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    leg_name = db.Column(db.String(150), nullable=False, index=True)
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    avg_max_mbitrate = db.Column(db.Float, nullable=True)
+    interface_speed_min = db.Column(db.Integer, nullable=True)
+    interface_speed_max = db.Column(db.Integer, nullable=True)
+    sub_leg_count = db.Column(db.Integer, nullable=True)
+    source = db.Column(db.String(20), nullable=True, default='external')
+
 class JumpServer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     host = db.Column(db.String(255), nullable=False)

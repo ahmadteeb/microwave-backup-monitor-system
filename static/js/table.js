@@ -14,6 +14,22 @@ let currentPage = 1;
 let totalPages = 1;
 let searchTimeout = null;
 
+// Helpers
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function truncateText(s, n = 18) {
+  if (!s) return '';
+  return s.length > n ? s.slice(0, n) + '...' : s;
+}
+
 // API Fetch
 async function pollTable() {
   const status = statusFilter.value;
@@ -49,7 +65,7 @@ function handleLinkStatusUpdate(update) {
       }
 
       // Update latency
-      const latencyCell = row.querySelector('td:nth-child(6)');
+      const latencyCell = row.querySelector('td:nth-child(9)');
       if (latencyCell) {
         latencyCell.innerHTML = update.latency_ms !== null
           ? `<span class="text-teal">${update.latency_ms}ms</span>`
@@ -58,15 +74,19 @@ function handleLinkStatusUpdate(update) {
 
       // Update utilization bars
       if (update.latest_metric) {
-        const fiberCell = row.querySelector('td:nth-child(3)');
-        const mwCell = row.querySelector('td:nth-child(4)');
-        if (fiberCell) {
-          const fiberPct = update.latest_metric.fiber_util_pct ?? 0;
-          fiberCell.innerHTML = createUtilBar(fiberPct, getBarColor(fiberPct));
+        const legCell = row.querySelector('td:nth-child(5)');
+        const mwCell = row.querySelector('td:nth-child(6)');
+        const capCell = row.querySelector('td:nth-child(7)');
+        if (legCell) {
+          const legPct = update.latest_metric.leg_util_pct ?? 0;
+          legCell.innerHTML = createUtilBar(legPct, getBarColor(legPct));
         }
         if (mwCell) {
           const mwPct = update.latest_metric.mw_util_pct ?? 0;
           mwCell.innerHTML = createUtilBar(mwPct, getBarColor(mwPct));
+        }
+        if (capCell && update.latest_metric.mw_capacity_mbps !== undefined) {
+          capCell.innerHTML = formatCapacity(update.latest_metric.mw_capacity_mbps);
         }
       }
 
@@ -88,16 +108,16 @@ function renderTable(links) {
   tableBody.innerHTML = '';
 
   if (links.length === 0) {
-    tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No links found matching criteria.</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted);">No links found matching criteria.</td></tr>`;
     return;
   }
 
   links.forEach(link => {
     const tr = document.createElement('tr');
 
-    const fiberPct = link.latest_metric && link.latest_metric.fiber_util_pct !== null ? link.latest_metric.fiber_util_pct : 0;
-    const fiberColor = getBarColor(fiberPct);
-    const fiberBar = createUtilBar(fiberPct, fiberColor);
+    const legPct = link.leg_util_pct !== null && link.leg_util_pct !== undefined ? link.leg_util_pct : 0;
+    const legColor = getBarColor(legPct);
+    const legBar = createUtilBar(legPct, legColor);
 
     const mwPct = link.latest_metric && link.latest_metric.mw_util_pct !== null ? link.latest_metric.mw_util_pct : 0;
     const mwColor = getBarColor(mwPct);
@@ -109,11 +129,22 @@ function renderTable(links) {
       ? `<span class="text-teal">${link.latency_ms}ms</span>` 
       : `<span class="text-muted">—</span>`;
 
+    const capacityDisplay = formatCapacity(link.latest_metric && link.latest_metric.mw_capacity_mbps);
+
+    // Prepare truncated display with tooltip containing full text
+    const siteAFull = link.site_a || '';
+    const siteBFull = link.site_b || '';
+    const siteADisplay = siteAFull ? truncateText(siteAFull, 18) : '';
+    const siteBDisplay = siteBFull ? truncateText(siteBFull, 18) : '';
+
     tr.innerHTML = `
-      <td class="text-mono text-teal">${link.link_id}</td>
-      <td>${link.leg_name}</td>
-      <td>${fiberBar}</td>
+      <td class="text-mono text-teal">${escapeHtml(link.link_id)}</td>
+      <td>${escapeHtml(link.leg_name || '')}</td>
+      <td class="col-site"><div class="truncate" title="${escapeHtml(siteAFull)}">${siteAFull ? escapeHtml(siteADisplay) : '<span class="text-muted">—</span>'}</div></td>
+      <td class="col-site"><div class="truncate" title="${escapeHtml(siteBFull)}">${siteBFull ? escapeHtml(siteBDisplay) : '<span class="text-muted">—</span>'}</div></td>
+      <td>${legBar}</td>
       <td>${mwBar}</td>
+      <td>${capacityDisplay}</td>
       <td>${statusHtml}</td>
       <td class="text-mono">${latencyHtml}</td>
     `;
@@ -150,14 +181,31 @@ function renderTable(links) {
 }
 
 function createUtilBar(pct, colorVar) {
+  const normalizedPct = Math.max(0, Math.min(100, Number(pct) || 0));
+  const radius = 18;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference * (1 - normalizedPct / 100);
+
   return `
     <div class="util-bar-container">
-      <div class="util-pct">${Math.round(pct)}%</div>
-      <div class="util-bar-track">
-        <div class="util-bar-fill" style="width: ${pct}%; background-color: var(${colorVar});"></div>
-      </div>
+      <svg viewBox="0 0 42 42" aria-label="${Math.round(normalizedPct)}% utilization">
+        <circle class="util-bar-bg" cx="21" cy="21" r="${radius}" />
+        <circle class="util-bar-fill" cx="21" cy="21" r="${radius}" stroke-dasharray="${circumference.toFixed(2)}" stroke-dashoffset="${dashOffset.toFixed(2)}" style="stroke: var(${colorVar});" />
+      </svg>
+      <div class="util-bar-text">${Math.round(normalizedPct)}%</div>
     </div>
   `;
+}
+
+function formatCapacity(value) {
+  if (value === null || value === undefined || value === '') {
+    return '<span class="text-muted">—</span>';
+  }
+  const num = Number(value);
+  if (Number.isNaN(num)) {
+    return '<span class="text-muted">—</span>';
+  }
+  return `${Math.round(num).toLocaleString()} Mbps`;
 }
 
 function getBarColor(pct) {

@@ -14,15 +14,18 @@ const inputSiteB = document.getElementById('modal-site-b');
 const inputMwIp = document.getElementById('modal-mw-ip');
 const ipHelper = document.getElementById('modal-ip-helper');
 const ipErrorIcon = document.getElementById('ip-error-icon');
-const inputFiberUtil = document.getElementById('fiber-util-input');
-const inputMwUtil = document.getElementById('mw-util-input');
-const btnSubmitMetric = document.getElementById('submit-metric-btn');
-const metricMessage = document.getElementById('metric-message');
+const btnFetchLinkInfo = document.getElementById('btn-fetch-link-info');
+const btnFetchLegInfo = document.getElementById('btn-fetch-leg-info');
+const externalLookupSection = document.getElementById('external-lookup-section');
+const externalLinkDetails = document.getElementById('external-link-details');
+const externalLegDetails = document.getElementById('external-leg-details');
+// Record utilization elements removed from modal UI
 
 // Functions
 function openModal(mode = 'create', data = {}) {
   resetForm();
-  
+  clearExternalLookup();
+
   if (mode === 'edit') {
     modalId.value = data.id;
     inputLinkId.value = data.link_id;
@@ -30,14 +33,9 @@ function openModal(mode = 'create', data = {}) {
     inputSiteA.value = data.site_a || '';
     inputSiteB.value = data.site_b || '';
     inputMwIp.value = data.mw_ip;
-    inputFiberUtil.value = data.latest_metric?.fiber_util_pct ?? '';
-    inputMwUtil.value = data.latest_metric?.mw_util_pct ?? '';
-    metricMessage.textContent = '';
-    if (window.renderPingHistoryChart && data.ping_history) {
-      window.renderPingHistoryChart(data.ping_history);
-    }
+    // Record utilization UI removed
   } else {
-    resetMetricFields();
+    // Create mode: no record utilization UI
   }
   
   modalOverlay.classList.add('active');
@@ -55,6 +53,7 @@ function resetForm() {
   inputSiteB.value = '';
   inputMwIp.value = '';
   resetMetricFields();
+  clearExternalLookup();
   inputMwIp.classList.remove('error');
   ipHelper.classList.remove('error');
   ipErrorIcon.classList.add('hidden');
@@ -62,12 +61,23 @@ function resetForm() {
 }
 
 function resetMetricFields() {
-  if (inputFiberUtil) inputFiberUtil.value = '';
-  if (inputMwUtil) inputMwUtil.value = '';
-  if (metricMessage) {
-    metricMessage.textContent = '';
-    metricMessage.classList.remove('error');
+  // Metric fields removed; no-op
+}
+
+function clearExternalLookup() {
+  if (externalLookupSection) {
+    externalLookupSection.style.display = 'none';
   }
+  if (externalLinkDetails) {
+    externalLinkDetails.innerHTML = '';
+  }
+  if (externalLegDetails) {
+    externalLegDetails.innerHTML = '';
+  }
+}
+
+function renderLookupDetail(title, value) {
+  return `<div class="lookup-detail"><strong>${title}:</strong> ${value !== null && value !== undefined ? value : 'N/A'}</div>`;
 }
 
 function showMetricError(msg) {
@@ -140,55 +150,101 @@ async function handleSave() {
   }
 }
 
-async function handleRecordMetric() {
-  const id = modalId.value;
-  if (!id) {
-    showMetricError('Select a link before recording metrics.');
+async function handleFetchLinkInfo() {
+  const linkId = inputLinkId.value.trim();
+  if (!linkId) {
+    window.showToast('Enter a Link ID first to fetch external data.', 'error');
     return;
   }
 
-  const fiberValue = inputFiberUtil.value.trim();
-  const mwValue = inputMwUtil.value.trim();
-  const payload = {};
-
-  if (fiberValue !== '') {
-    payload.fiber_util_pct = parseFloat(fiberValue);
-  }
-  if (mwValue !== '') {
-    payload.mw_util_pct = parseFloat(mwValue);
-  }
-
-  if (Object.keys(payload).length === 0) {
-    showMetricError('Enter at least one utilization value to record.');
-    return;
-  }
-
-  window.setButtonLoading(btnSubmitMetric, true, 'RECORDING...');
+  window.setButtonLoading(btnFetchLinkInfo, true, 'FETCHING...');
   try {
-    await window.fetchAPI(`/api/links/${id}/metrics`, {
+    const response = await window.fetchAPI('/api/links/lookup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ link_id: linkId })
     });
-    window.showToast('Utilization recorded successfully', 'success');
-    if (window.refreshTable) window.refreshTable();
-    resetMetricFields();
+
+    inputSiteA.value = response.external.Source_NE_Card || inputSiteA.value;
+    inputSiteB.value = response.external.Sink_NE_Card || inputSiteB.value;
+
+    if (externalLookupSection) {
+      externalLookupSection.style.display = 'block';
+    }
+    if (externalLinkDetails) {
+      externalLinkDetails.innerHTML = '';
+      externalLinkDetails.insertAdjacentHTML('beforeend', renderLookupDetail('External Link Name', response.external.Link_Name));
+      externalLinkDetails.insertAdjacentHTML('beforeend', renderLookupDetail('Link Unif', response.external.Link_Name_Unif));
+      externalLinkDetails.insertAdjacentHTML('beforeend', renderLookupDetail('Link Category', response.external.Link_Categ));
+      externalLinkDetails.insertAdjacentHTML('beforeend', renderLookupDetail('Average MW Util %', response.external.AVG_MAX_Util_RxTx_perc));
+      externalLinkDetails.insertAdjacentHTML('beforeend', renderLookupDetail('Avg Rx Kbps', response.external.AVG_MAX_Rx_Kbps));
+      externalLinkDetails.insertAdjacentHTML('beforeend', renderLookupDetail('Avg Tx Kbps', response.external.AVG_MAX_Tx_Kbps));
+    }
+    // If editing an existing link, record the external MW utilization so the table updates immediately
+    const id = modalId.value;
+    if (id) {
+      const extUtil = parseFloat(response.external.AVG_MAX_Util_RxTx_perc);
+      if (!Number.isNaN(extUtil)) {
+        try {
+          await window.fetchAPI(`/api/links/${id}/metrics`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mw_util_pct: extUtil, source: 'external' })
+          });
+          if (window.refreshTable) window.refreshTable();
+        } catch (err) {
+          console.warn('Failed to persist external utilization', err);
+        }
+      }
+    }
   } catch (err) {
-    showMetricError(err.message);
-    window.showToast('Failed to record utilization: ' + err.message, 'error');
+    window.showToast('Failed to fetch external link information: ' + err.message, 'error');
   } finally {
-    window.setButtonLoading(btnSubmitMetric, false);
+    window.setButtonLoading(btnFetchLinkInfo, false);
   }
 }
+
+async function handleFetchLegInfo() {
+  const legName = inputLegName.value.trim();
+  if (!legName) {
+    window.showToast('Enter a LEG name first to fetch external data.', 'error');
+    return;
+  }
+
+  window.setButtonLoading(btnFetchLegInfo, true, 'FETCHING...');
+  try {
+    const response = await window.fetchAPI('/api/links/lookup-leg', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ leg_name: legName })
+    });
+
+    if (externalLookupSection) {
+      externalLookupSection.style.display = 'block';
+    }
+    if (externalLegDetails) {
+      externalLegDetails.innerHTML = '';
+      externalLegDetails.insertAdjacentHTML('beforeend', renderLookupDetail('LEG Name', response.external.LEG_Name));
+      externalLegDetails.insertAdjacentHTML('beforeend', renderLookupDetail('Average Max MBitRate', response.external.AVG_MAX_MBitRate));
+      externalLegDetails.insertAdjacentHTML('beforeend', renderLookupDetail('Interface Speed Min', response.external.Interface_Speed_Min));
+      externalLegDetails.insertAdjacentHTML('beforeend', renderLookupDetail('Interface Speed Max', response.external.Interface_Speed_Max));
+      externalLegDetails.insertAdjacentHTML('beforeend', renderLookupDetail('LEG Util %', response.external.LEG_Util_pct !== null && response.external.LEG_Util_pct !== undefined ? `${response.external.LEG_Util_pct}%` : 'N/A'));
+      externalLegDetails.insertAdjacentHTML('beforeend', renderLookupDetail('Sub LEG Count', response.external.Sub_LEG_Count));
+    }
+  } catch (err) {
+    window.showToast('Failed to fetch external LEG information: ' + err.message, 'error');
+  } finally {
+    window.setButtonLoading(btnFetchLegInfo, false);
+  }
+}
+
+// Record utilization UI removed; persistence of external metrics still occurs when fetching link info for edits.
 
 // Global functions for table actions
 window.openEditModal = async (id) => {
   try {
     const data = await window.fetchAPI(`/api/links/${id}`);
     openModal('edit', data.link);
-    if (window.renderPingHistoryChart) {
-      window.renderPingHistoryChart(data.ping_history || []);
-    }
   } catch (err) {
     console.error("Failed to load link details", err);
     window.showToast('Failed to load link details', 'error');
@@ -226,9 +282,13 @@ if (btnAddLink) {
 btnCloseModal.addEventListener('click', closeModal);
 btnCancelModal.addEventListener('click', closeModal);
 btnSaveModal.addEventListener('click', handleSave);
-if (btnSubmitMetric) {
-  btnSubmitMetric.addEventListener('click', handleRecordMetric);
+if (btnFetchLinkInfo) {
+  btnFetchLinkInfo.addEventListener('click', handleFetchLinkInfo);
 }
+if (btnFetchLegInfo) {
+  btnFetchLegInfo.addEventListener('click', handleFetchLegInfo);
+}
+// submit metric button removed
 
 // Close on backdrop click
 modalOverlay.addEventListener('click', (e) => {
