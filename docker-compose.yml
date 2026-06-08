@@ -1,0 +1,20 @@
+services:
+  app:
+    build: .
+    container_name: mw_backup_link_monitor_system
+    volumes:
+      - mw_backup_link_monitor_system:/app/data
+    networks:
+      monitor_network:
+        ipv4_address: 172.20.0.2
+    restart: unless-stopped
+
+volumes:
+  mw_backup_link_monitor_system:
+    name: mw_backup_link_monitor_system
+
+networks:
+  monitor_network:
+    ipam:
+      config:
+        - subnet: 172.50.0.0/30

@@ -7,6 +7,7 @@ Creates sample links with IPs from 172.50.0.2 to 172.50.0.11.
 from app import create_app
 from app.extensions import db
 from app.models import Link, LinkStatus
+import random
 from datetime import datetime, timezone
 
 def create_test_links():
@@ -29,8 +30,8 @@ def create_test_links():
 
         created_count = 0
 
-        for i in range(2, 12):  # 172.50.0.2 to 172.50.0.11
-            ip = f"172.50.0.{i}"
+        for i in range(3, 13):  # 172.20.0.3 to 172.20.0.12
+            ip = f"172.20.0.{i}"
             link_id = f"TEST_LINK_{i:02d}"
             leg_name = legs[(i-2) % len(legs)]
             site_a = sites_a[(i-2) % len(sites_a)]
@@ -64,9 +65,19 @@ def create_test_links():
             # Create initial status record
             status = LinkStatus(
                 link_id=link.id,
-                mw_status='unknown',
-                last_ping_at=None,
-                consecutive_timeouts=0
+                mw_status='up',
+                last_ping_at=datetime.utcnow(),
+                consecutive_timeouts=0,
+                leg_util_pct=round(random.uniform(10.0, 95.0), 2),
+                leg_capacity_mbps=round(random.uniform(100.0, 1000.0), 2),
+                mw_util_pct=round(random.uniform(10.0, 85.0), 2),
+                mw_capacity_mbps=round(random.uniform(100.0, 500.0), 2),
+                avg_max_mbitrate=round(random.uniform(50.0, 800.0), 2),
+                interface_speed_min=100,
+                interface_speed_max=1000,
+                sub_leg_count=random.randint(1, 4),
+                metric_source='simulation',
+                leg_source='simulation'
             )
             db.session.add(status)
 
@@ -75,7 +86,7 @@ def create_test_links():
 
         db.session.commit()
         print(f"\nSuccessfully created {created_count} test links!")
-        print("IP range: 172.50.0.2 - 172.50.0.11")
+        print("IP range: 172.20.0.3 - 172.20.0.12")
 
 if __name__ == '__main__':
     create_test_links()

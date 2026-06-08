@@ -11,8 +11,6 @@ def create_app(config_class=Config):
     app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     app = Flask(
         __name__,
-        static_folder=os.path.join(app_root, 'static'),
-        template_folder=os.path.join(app_root, 'templates'),
         instance_path=os.path.join(app_root, 'data', 'instance'),
         static_url_path='/static'
     )
@@ -20,7 +18,7 @@ def create_app(config_class=Config):
 
     db.init_app(app)
     bcrypt.init_app(app)
-    socketio.init_app(app, cors_allowed_origins="*", async_mode='threading')
+    socketio.init_app(app, cors_allowed_origins="*", async_mode='eventlet')
 
     global APP_START_TIME
     APP_START_TIME = datetime.utcnow()

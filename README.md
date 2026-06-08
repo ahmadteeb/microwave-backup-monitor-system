@@ -37,10 +37,10 @@ Then open `http://127.0.0.1:5000` in your browser.
 
 ## Production
 
-Start with Gunicorn:
+To start the application in production mode, use Gunicorn with Eventlet (required for Flask-SocketIO WebSocket support):
 
 ```bash
-gunicorn -c gunicorn.conf.py "app:create_app()"
+gunicorn --worker-class eventlet -w 1 -b 0.0.0.0:5000 run:app
 ```
 
 ## Setup

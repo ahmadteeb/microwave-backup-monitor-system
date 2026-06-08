@@ -1,0 +1,94 @@
+services:
+  app:
+    build: .
+    container_name: mw_backup_link_monitor_system_simulation
+    volumes:
+      - mw_backup_link_monitor_system_simulation:/app/data
+    ports:
+      - "5000:5000"
+    networks:
+      monitor_network:
+        ipv4_address: 172.20.0.2
+    command: sh -c "python simulation-data.py && gunicorn --worker-class eventlet -w 1 -b 0.0.0.0:5000 run:app"
+    restart: unless-stopped
+
+  device1: &device
+    image: nginx:alpine
+    container_name: simulation_device1
+    networks:
+      monitor_network:
+        ipv4_address: 172.20.0.3
+
+  device2:
+    <<: *device
+    container_name: simulation_device2
+    networks:
+      monitor_network:
+        ipv4_address: 172.20.0.4
+
+  device3:
+    <<: *device
+    container_name: simulation_device3
+    networks:
+      monitor_network:
+        ipv4_address: 172.20.0.5
+
+  device4:
+    <<: *device
+    container_name: simulation_device4
+    networks:
+      monitor_network:
+        ipv4_address: 172.20.0.6
+
+  device5:
+    <<: *device
+    container_name: simulation_device5
+    networks:
+      monitor_network:
+        ipv4_address: 172.20.0.7
+
+  device6:
+    <<: *device
+    container_name: simulation_device6
+    networks:
+      monitor_network:
+        ipv4_address: 172.20.0.8
+
+  device7:
+    <<: *device
+    container_name: simulation_device7
+    networks:
+      monitor_network:
+        ipv4_address: 172.20.0.9
+
+  device8:
+    <<: *device
+    container_name: simulation_device8
+    networks:
+      monitor_network:
+        ipv4_address: 172.20.0.10
+
+  device9:
+    <<: *device
+    container_name: simulation_device9
+    networks:
+      monitor_network:
+        ipv4_address: 172.20.0.11
+
+  device10:
+    <<: *device
+    container_name: simulation_device10
+    networks:
+      monitor_network:
+        ipv4_address: 172.20.0.12
+
+
+volumes:
+  mw_backup_link_monitor_system_simulation:
+    name: mw_backup_link_monitor_system_simulation
+
+networks:
+  monitor_network:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
