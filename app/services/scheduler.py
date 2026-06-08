@@ -4,7 +4,10 @@ import logging
 from app.services.ping_service import run_ping_cycle, set_app_instance
 from app.services.external_util_service import refresh_external_utilization
 from app.extensions import db
-from app.models import AppSettings
+from app.models import AppSettings, Link, LinkEventLog, User, SmtpConfig, NotificationSubscription
+from app.services.notification_service import _deliver_emails
+from flask import render_template
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,76 @@ def external_util_job():
         except Exception as exc:
             logger.error(f'Error refreshing external utilization: {exc}')
 
+def daily_report_job():
+    global _app_instance
+    if not _app_instance:
+        logger.error('No app instance available for daily report job')
+        return
+
+    with _app_instance.app_context():
+        try:
+            logger.info("Starting daily report job")
+            links = Link.query.filter_by(is_active=True).all()
+            
+            # Fetch events from last 24 hours
+            yesterday = datetime.utcnow() - timedelta(days=1)
+            events = LinkEventLog.query.filter(LinkEventLog.timestamp >= yesterday).order_by(LinkEventLog.timestamp.desc()).all()
+            
+            # Format link data
+            formatted_links = []
+            for link in links:
+                status = 'UNKNOWN'
+                if link.status:
+                    status = link.status.mw_status.upper()
+                
+                formatted_links.append({
+                    'link_id': link.link_id,
+                    'leg_name': link.leg_name,
+                    'status': status,
+                    'mw_util_pct': link.status.mw_util_pct if link.status else None,
+                    'leg_util_pct': link.status.leg_util_pct if link.status else None,
+                    'latency_ms': link.status.last_ping_latency_ms if link.status else None
+                })
+            
+            html_body = render_template(
+                'emails/daily_report.html',
+                date=datetime.utcnow().strftime('%Y-%m-%d'),
+                links=formatted_links,
+                events=events
+            )
+            
+            # Get users subscribed to report or just all active users
+            users = User.query.filter(User.is_active.is_(True)).all()
+            user_emails = [u.email for u in users if u.email]
+            
+            if user_emails:
+                smtp_record = SmtpConfig.query.first()
+                if smtp_record:
+                    from app.services.crypto_service import decrypt
+                    decrypted_pass = None
+                    if smtp_record.password_encrypted:
+                        try:
+                            decrypted_pass = decrypt(smtp_record.password_encrypted)
+                        except Exception as e:
+                            pass
+                    
+                    smtp_config = {
+                        'host': smtp_record.host,
+                        'port': smtp_record.port,
+                        'username': smtp_record.username,
+                        'password': decrypted_pass,
+                        'password_encrypted': smtp_record.password_encrypted,
+                        'from_address': smtp_record.from_address,
+                        'use_tls': smtp_record.use_tls,
+                        'use_ssl': getattr(smtp_record, 'use_ssl', False),
+                    }
+                    _deliver_emails(user_emails, "[MW Monitor] Daily Report", "Please view this email in an HTML client.", smtp_config, html_body=html_body)
+                    logger.info("Daily report sent successfully")
+                else:
+                    logger.warning("SMTP not configured, skipping daily report")
+        except Exception as exc:
+            logger.error(f'Error sending daily report: {exc}')
+
 
 def init_scheduler(app):
     global _scheduler_instance, _app_instance
@@ -80,6 +153,18 @@ def init_scheduler(app):
         trigger='interval',
         days=1,
         id='external_util_refresh',
+        max_instances=1,
+        misfire_grace_time=3600,
+        coalesce=True,
+        replace_existing=True
+    )
+    
+    scheduler.add_job(
+        func=daily_report_job,
+        trigger='cron',
+        hour=8,
+        minute=0,
+        id='daily_report',
         max_instances=1,
         misfire_grace_time=3600,
         coalesce=True,

@@ -31,6 +31,14 @@ class PingResult(db.Model):
     triggered_by = db.Column(db.String(20), nullable=False, server_default='scheduler', default='scheduler')
     triggered_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
 
+class LinkEventLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    link_id = db.Column(db.Integer, db.ForeignKey('link.id'), nullable=False, index=True)
+    event_type = db.Column(db.Enum('UP', 'DOWN', 'FLAPPING', name='link_event_type'), nullable=False)
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    details = db.Column(db.Text, nullable=True)
+
+    link = db.relationship('Link', backref=db.backref('events', lazy='dynamic', cascade='all, delete-orphan'))
 
 
 class JumpServer(db.Model):

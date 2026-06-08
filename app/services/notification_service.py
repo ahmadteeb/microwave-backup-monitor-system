@@ -3,7 +3,8 @@ import threading
 from datetime import datetime
 from email.message import EmailMessage
 import logging
-from app.models import db, User, NotificationSubscription, InAppNotification, SmtpConfig
+from flask import render_template
+from app.models import db, User, NotificationSubscription, InAppNotification, SmtpConfig, Link
 from app.services.crypto_service import decrypt
 from app.services.log_service import write_log
 
@@ -20,7 +21,7 @@ EVENT_SEVERITY = {
 }
 
 
-def _send_email_notification(user_email, subject, body, smtp_config):
+def _send_email_notification(user_email, subject, body, smtp_config, html_body=None):
     if not smtp_config:
         return
 
@@ -48,16 +49,18 @@ def _send_email_notification(user_email, subject, body, smtp_config):
         msg['From'] = smtp_config['from_address']
         msg['To'] = user_email
         msg.set_content(body)
+        if html_body:
+            msg.add_alternative(html_body, subtype='html')
         server.send_message(msg)
         server.quit()
     except Exception as exc:
         logger.error(f"Email send failed to {user_email}: {exc}")
 
 
-def _deliver_emails(user_emails, subject, body, smtp_config):
+def _deliver_emails(user_emails, subject, body, smtp_config, html_body=None):
     for email in user_emails:
         if email:
-            _send_email_notification(email, subject, body, smtp_config)
+            _send_email_notification(email, subject, body, smtp_config, html_body=html_body)
 
 
 def _emit_notification_ws(user_id, notification_data):
@@ -120,6 +123,23 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
         if user_emails:
             subject = f"[MW Monitor] {event_key.replace('_', ' ').title()}"
             body = message
+            
+            html_body = None
+            if link_id:
+                link = Link.query.filter_by(link_id=link_id).first()
+                if link:
+                    # Create application context if running in background thread
+                    from flask import current_app
+                    app = current_app._get_current_object()
+                    with app.app_context():
+                        html_body = render_template(
+                            'emails/link_event.html',
+                            event_type=event_key.split('_')[-1].upper(),
+                            message=message,
+                            link=link,
+                            timestamp=now.strftime('%Y-%m-%d %H:%M:%S')
+                        )
+
             # Load SMTP config for email delivery
             smtp_record = SmtpConfig.query.first()
             smtp_config = None
@@ -142,7 +162,7 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
                     'use_ssl': getattr(smtp_record, 'use_ssl', False),
                 }
             if smtp_config:
-                thread = threading.Thread(target=_deliver_emails, args=(user_emails, subject, body, smtp_config), daemon=True)
+                thread = threading.Thread(target=_deliver_emails, args=(user_emails, subject, body, smtp_config, html_body), daemon=True)
                 thread.start()
         return len(notifications)
     except Exception as exc:

@@ -19,7 +19,7 @@ import subprocess
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import current_app
-from app.models import db, Link, PingResult, JumpServer, AppSettings, LinkStatus
+from app.models import db, Link, PingResult, JumpServer, AppSettings, LinkStatus, LinkEventLog
 from app.services.notification_service import send_event_notification
 from app.services.crypto_service import decrypt
 from app.services.ssh_session_manager import get_session_manager
@@ -136,6 +136,17 @@ def _build_link_status(link, reachable, latency_ms, packet_loss, result_timestam
     status_record.consecutive_timeouts = previous_timeouts + 1 if not reachable else 0
 
     if previous_status != new_status:
+        # Avoid logging initialization as an event if previous_status was None
+        if previous_status is not None:
+            event_type = 'DOWN' if new_status == 'down' else 'UP'
+            event_log = LinkEventLog(
+                link_id=link.id,
+                event_type=event_type,
+                timestamp=result_timestamp,
+                details=f"Status changed from {previous_status} to {new_status}"
+            )
+            db.session.add(event_log)
+
         if new_status == 'down':
             send_event_notification(
                 'mw_link_down',

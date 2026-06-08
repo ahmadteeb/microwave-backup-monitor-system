@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .header { background: #2b6cb0; color: white; padding: 15px 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { padding: 20px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0 0 5px 5px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; }
+        th, td { border: 1px solid #e2e8f0; padding: 10px; text-align: left; }
+        th { background: #edf2f7; font-weight: bold; }
+        .status-UP { color: #48bb78; font-weight: bold; }
+        .status-DOWN { color: #f56565; font-weight: bold; }
+        .status-WARNING { color: #ed8936; font-weight: bold; }
+        .footer { margin-top: 20px; font-size: 12px; color: #718096; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>MW Backup Link Monitor - Daily Report</h2>
+    </div>
+    <div class="content">
+        <p>Here is your daily summary report of all monitored links for {{ date }}.</p>
+        
+        <h3>Link Status Overview</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Link ID</th>
+                    <th>Leg Name</th>
+                    <th>Status</th>
+                    <th>MW Util %</th>
+                    <th>Leg Util %</th>
+                    <th>Ping Latency</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for link in links %}
+                <tr>
+                    <td>{{ link.link_id }}</td>
+                    <td>{{ link.leg_name }}</td>
+                    <td class="status-{{ link.status }}">{{ link.status }}</td>
+                    <td>{{ link.mw_util_pct|default('N/A') }}</td>
+                    <td>{{ link.leg_util_pct|default('N/A') }}</td>
+                    <td>{{ link.latency_ms ~ ' ms' if link.latency_ms else 'N/A' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if events %}
+        <h3 style="margin-top: 30px;">Recent Events (Last 24 Hours)</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Link ID</th>
+                    <th>Event</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in events %}
+                <tr>
+                    <td>{{ event.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td>{{ event.link.link_id }}</td>
+                    <td class="status-{{ event.event_type }}">{{ event.event_type }}</td>
+                    <td>{{ event.details or '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+    <div class="footer">
+        <p>This is an automated message from the MW Backup Link Monitor System.</p>
+    </div>
+</body>
+</html>
