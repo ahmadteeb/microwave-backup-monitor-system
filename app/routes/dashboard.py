@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify
 from app import APP_START_TIME
-from app.models import db, Link, PingResult, MetricSnapshot, LinkStatus
+from app.models import db, Link, PingResult, LinkStatus
 from app.permissions import login_required, require_permission
 from datetime import datetime, timedelta
 

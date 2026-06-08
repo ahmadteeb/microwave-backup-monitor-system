@@ -5,7 +5,6 @@ import os
 def _load_config_values():
     default_secret = os.environ.get('SECRET_KEY', 'change-this-to-a-random-secret-key')
     db_uri = os.environ.get('DATABASE_URL')
-    external_db_uri = os.environ.get('EXTERNAL_UTIL_DATABASE_URL')
 
     app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     secrets_path = os.path.abspath(os.path.join(app_root, 'data', 'secrets', 'secrets.json'))
@@ -26,10 +25,8 @@ def _load_config_values():
                 uri = config.get('database_url')
                 if uri:
                     db_uri = uri
-                external_db_uri = config.get('external_util_database_url', external_db_uri)
             
-            external_db_uri = secrets_data.get('external_util_database_url', external_db_uri)
-            return db_uri or 'sqlite:///:memory:', secret_key, external_db_uri
+            return db_uri or 'sqlite:///:memory:', secret_key
         except Exception:
             pass
             
@@ -41,22 +38,21 @@ def _load_config_values():
                 config = json.load(f)
             uri = config.get('database_url')
             if uri:
-                return uri, default_secret, external_db_uri
+                return uri, default_secret
         except Exception:
             pass
 
-    return db_uri or 'sqlite:///:memory:', default_secret, external_db_uri
+    return db_uri or 'sqlite:///:memory:', default_secret
 
 
 class Config:
-    _db_uri, _secret, _external_db_uri = _load_config_values()
+    _db_uri, _secret = _load_config_values()
 
     SECRET_KEY = _secret
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
     FLASK_ENV = os.environ.get('FLASK_ENV', 'production')
 
     SQLALCHEMY_DATABASE_URI = _db_uri
-    SQLALCHEMY_EXTERNAL_UTIL_DATABASE_URI = _external_db_uri
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SESSION_COOKIE_SAMESITE = 'Strict'
     SESSION_COOKIE_HTTPONLY = True

@@ -82,8 +82,8 @@ def clear_notifications():
 EVENT_KEYS = [
     'mw_link_down',
     'mw_link_recovered',
-    'fiber_util_high',
-    'fiber_util_near_cap',
+    'leg_util_high',
+    'leg_util_near_cap',
     'mw_util_high',
     'consecutive_timeouts',
     'ping_service_error'

@@ -130,8 +130,8 @@ async function saveSettings() {
       mw_link_recovered: notifyLinkUp,
       mw_link_down: notifyLinkDown,
       mw_util_high: notifyHighUtil,
-      fiber_util_high: notifyHighUtil,
-      fiber_util_near_cap: notifyHighUtil,
+      leg_util_high: notifyHighUtil,
+      leg_util_near_cap: notifyHighUtil,
       ping_service_error: notifySystemError,
       consecutive_timeouts: notifySystemError
     }

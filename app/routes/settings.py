@@ -4,11 +4,12 @@ import smtplib
 from datetime import datetime
 from email.message import EmailMessage
 from flask import Blueprint, request, jsonify, session, current_app
-from app.models import db, SmtpConfig, JumpServer, AppSettings, User
+from app.models import db, SmtpConfig, JumpServer, AppSettings, User, ExternalDbConfig
 from urllib.parse import quote_plus
 from app.services.crypto_service import encrypt, decrypt, encrypt_with_key, decrypt_with_key
 from app.services.ssh_service import SSHService
 from app.services.log_service import write_log
+from app.services.external_util_service import invalidate_external_engine
 from app.permissions import login_required, require_permission
 
 settings_bp = Blueprint('settings', __name__, url_prefix='/api/settings')
@@ -322,16 +323,15 @@ def test_jumpserver():
 @login_required
 @require_permission('config.view')
 def get_external_db_settings():
-    payload = _load_secret_payload()
-    external_db_config = payload.get('external_db_config') or {}
-    enabled = bool(external_db_config.get('host') and external_db_config.get('port') and external_db_config.get('username') and external_db_config.get('database'))
+    ext_config = ExternalDbConfig.query.filter_by(active=True).first()
+    enabled = ext_config is not None
     return jsonify({'external_db': {
         'enabled': enabled,
-        'host': external_db_config.get('host', ''),
-        'port': external_db_config.get('port', 3306),
-        'username': external_db_config.get('username', ''),
-        'password': _mask_password(external_db_config.get('password')),
-        'database': external_db_config.get('database', '')
+        'host': ext_config.host if ext_config else '',
+        'port': ext_config.port if ext_config else 3306,
+        'username': ext_config.username if ext_config else '',
+        'password': _mask_password(ext_config.password_encrypted) if ext_config else '',
+        'database': ext_config.database if ext_config else ''
     }}), 200
 
 
@@ -341,35 +341,46 @@ def get_external_db_settings():
 def update_external_db_settings():
     data = request.get_json() or {}
     enabled = bool(data.get('enabled', False))
-    secret_payload = _load_secret_payload()
+    ext_config = ExternalDbConfig.query.filter_by(active=True).first()
 
-    if enabled:
-        if not data.get('host') or not data.get('port') or not data.get('username') or not data.get('database'):
-            return jsonify({'error': 'host, port, username, and database are required'}), 400
-        password_value = data.get('password', '')
-        existing_password = secret_payload.get('external_db_config', {}).get('password', '')
-        if password_value == _mask_password(existing_password):
-            password_value = existing_password
-        external_db_config = {
-            'host': data['host'],
-            'port': int(data['port']),
-            'username': data['username'],
-            'password': password_value,
-            'database': data['database']
-        }
-        secret_payload['external_db_config'] = external_db_config
-        secret_payload['external_util_database_url'] = f"mysql+pymysql://{quote_plus(str(external_db_config['username']).strip())}:{quote_plus(str(external_db_config['password'] or '').strip())}@{external_db_config['host'].strip()}:{external_db_config['port']}/{external_db_config['database'].strip()}?charset=utf8mb4"
+    if not enabled:
+        if ext_config:
+            ext_config.active = False
+            db.session.commit()
+            invalidate_external_engine()
+        write_log('config', 'external_db_settings_updated', session.get('username', 'system'), 'external_db_settings', {'enabled': False})
+        return jsonify({'result': 'external db disabled'}), 200
+
+    if not data.get('host') or not data.get('port') or not data.get('username') or not data.get('database'):
+        return jsonify({'error': 'host, port, username, and database are required'}), 400
+
+    if ext_config:
+        ext_config.active = False
+        db.session.commit()
+
+    password = data.get('password')
+    if password and password != '••••••••':
+        encrypted_password = encrypt(password)
+    elif ext_config:
+        encrypted_password = ext_config.password_encrypted
     else:
-        secret_payload.pop('external_db_config', None)
-        secret_payload.pop('external_util_database_url', None)
+        encrypted_password = None
 
-    _save_secret_payload(secret_payload)
-    if enabled:
-        current_app.config['SQLALCHEMY_EXTERNAL_UTIL_DATABASE_URI'] = secret_payload['external_util_database_url']
-    else:
-        current_app.config['SQLALCHEMY_EXTERNAL_UTIL_DATABASE_URI'] = None
-
-    write_log('config', 'external_db_settings_updated', session.get('username', 'system'), 'external_db_settings', {'enabled': enabled})
+    new_config = ExternalDbConfig(
+        host=data['host'],
+        port=int(data['port']),
+        username=data['username'],
+        password_encrypted=encrypted_password,
+        database=data['database'],
+        active=True,
+        updated_by_id=session.get('user_id')
+    )
+    db.session.add(new_config)
+    db.session.commit()
+    
+    invalidate_external_engine()
+    
+    write_log('config', 'external_db_settings_updated', session.get('username', 'system'), 'external_db_settings', {'enabled': True})
     return jsonify({'result': 'external db settings updated'}), 200
 
 
@@ -380,12 +391,24 @@ def test_external_db_settings():
     data = request.get_json() or {}
     if not data.get('host') or not data.get('port') or not data.get('username') or not data.get('database'):
         return jsonify({'error': 'Missing external DB host, port, username, or database.'}), 400
+        
+    password = data.get('password')
+    if not password or password == '••••••••':
+        ext_config = ExternalDbConfig.query.filter_by(active=True).first()
+        if ext_config and ext_config.password_encrypted:
+            try:
+                password = decrypt(ext_config.password_encrypted)
+            except Exception as exc:
+                return jsonify({'error': f'Unable to decrypt saved external DB password: {exc}'}), 500
+        else:
+            password = None
+            
     try:
         import sqlalchemy
         from sqlalchemy.engine import URL
         driver = 'mysql+pymysql'
         username = data['username'].strip() or None
-        password = data.get('password', '').strip() or None
+        password = password.strip() if password else None
         host = data['host'].strip()
         port = int(data['port'])
         database = data['database'].strip()

@@ -19,7 +19,7 @@ import subprocess
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import current_app
-from app.models import db, Link, PingResult, JumpServer, AppSettings, LinkStatus, MetricSnapshot
+from app.models import db, Link, PingResult, JumpServer, AppSettings, LinkStatus
 from app.services.notification_service import send_event_notification
 from app.services.crypto_service import decrypt
 from app.services.ssh_session_manager import get_session_manager
@@ -107,21 +107,20 @@ def _get_ping_settings():
     }
 
 
-def _derive_status(reachable, latest_metric, settings):
+def _derive_status(reachable, status_record, settings):
     if not reachable:
         return 'down'
 
-    if latest_metric and latest_metric.mw_util_pct is not None:
-        if latest_metric.mw_util_pct >= settings['util_critical_threshold_pct']:
+    if status_record and status_record.mw_util_pct is not None:
+        if status_record.mw_util_pct >= settings['util_critical_threshold_pct']:
             return 'high'
-        if latest_metric.mw_util_pct >= settings['util_warning_threshold_pct']:
+        if status_record.mw_util_pct >= settings['util_warning_threshold_pct']:
             return 'high'
 
     return 'up'
 
 
 def _build_link_status(link, reachable, latency_ms, packet_loss, result_timestamp, settings):
-    latest_metric = link.metrics.order_by(MetricSnapshot.timestamp.desc()).first()
     status_record = LinkStatus.query.filter_by(link_id=link.id).first()
     if not status_record:
         status_record = LinkStatus(link_id=link.id)
@@ -130,15 +129,11 @@ def _build_link_status(link, reachable, latency_ms, packet_loss, result_timestam
     previous_status = status_record.mw_status
     previous_timeouts = status_record.consecutive_timeouts or 0
 
-    new_status = _derive_status(reachable, latest_metric, settings)
+    new_status = _derive_status(reachable, status_record, settings)
     status_record.mw_status = new_status
     status_record.last_ping_at = result_timestamp
     status_record.last_ping_latency_ms = latency_ms
     status_record.consecutive_timeouts = previous_timeouts + 1 if not reachable else 0
-    if latest_metric:
-        status_record.last_metric_at = latest_metric.timestamp
-        status_record.fiber_util_pct = latest_metric.fiber_util_pct
-        status_record.mw_util_pct = latest_metric.mw_util_pct
 
     if previous_status != new_status:
         if new_status == 'down':
@@ -171,7 +166,6 @@ def _emit_link_status_update(link, result):
     """Emit a real-time WebSocket event with the updated link status."""
     try:
         from app.extensions import socketio
-        latest_metric = link.metrics.order_by(MetricSnapshot.timestamp.desc()).first()
         status = 'UNKNOWN'
         if link.status:
             status = link.status.mw_status.upper()
@@ -183,9 +177,9 @@ def _emit_link_status_update(link, result):
             'status': status,
             'latency_ms': result.latency_ms,
             'latest_metric': {
-                'fiber_util_pct': latest_metric.fiber_util_pct if latest_metric else None,
-                'mw_util_pct': latest_metric.mw_util_pct if latest_metric else None,
-            } if latest_metric else None
+                'leg_util_pct': link.status.leg_util_pct if link.status else None,
+                'mw_util_pct': link.status.mw_util_pct if link.status else None,
+            } if link.status and link.status.last_metric_at else None
         }
         socketio.emit('link_status_update', payload)
     except Exception as e:

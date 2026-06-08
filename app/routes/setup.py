@@ -61,29 +61,13 @@ def _build_db_uri(db_config):
     return f'{driver}://{username}:{password}@{host}:{port}/{database}'
 
 
-def _build_external_db_uri(external_db_config):
-    if not external_db_config:
-        return None
-    driver = DB_ENGINES.get('mysql')
-    username = quote_plus(str(external_db_config.get('username', '')).strip())
-    password = quote_plus(str(external_db_config.get('password', '') or ''))
-    host = external_db_config.get('host', '').strip()
-    port = int(external_db_config.get('port', 3306))
-    database = external_db_config.get('database', '').strip()
-    return f'{driver}://{username}:{password}@{host}:{port}/{database}?charset=utf8mb4'
-
-
-def _save_secrets(db_config, database_url, secret_key, external_database_url=None, external_db_config=None):
+def _save_secrets(db_config, database_url, secret_key):
     config_path = _get_db_config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     payload = {
         'database_url': database_url,
         'db_config': db_config
     }
-    if external_database_url:
-        payload['external_util_database_url'] = external_database_url
-    if external_db_config:
-        payload['external_db_config'] = external_db_config
     config_json = json.dumps(payload, indent=2)
     from app.services.crypto_service import encrypt_with_key
     encrypted_data = encrypt_with_key(config_json, secret_key)
@@ -102,8 +86,8 @@ USERNAME_PATTERN = re.compile(r'^[a-z0-9-]+$')
 EVENT_KEYS = [
     'mw_link_down',
     'mw_link_recovered',
-    'fiber_util_high',
-    'fiber_util_near_cap',
+    'leg_util_high',
+    'leg_util_near_cap',
     'mw_util_high',
     'consecutive_timeouts',
     'ping_service_error'
@@ -333,6 +317,21 @@ def complete_setup():
             )
             new_session.add(jumpserver)
 
+        external_db_config = data.get('external_db_config', {})
+        if external_db_config and any(external_db_config.get(k) for k in ('host', 'port', 'username', 'database')):
+            from app.models import ExternalDbConfig
+            ext_db = ExternalDbConfig(
+                host=external_db_config.get('host'),
+                port=int(external_db_config.get('port', 3306)),
+                username=external_db_config.get('username'),
+                password_encrypted=encrypt(external_db_config.get('password', '')) if external_db_config.get('password') else None,
+                database=external_db_config.get('database'),
+                active=True,
+                updated_at=datetime.utcnow(),
+                updated_by_id=user.id
+            )
+            new_session.add(ext_db)
+
         app_settings = new_session.get(AppSettings, 1)
         if not app_settings:
             app_settings = AppSettings(id=1)
@@ -372,25 +371,32 @@ def complete_setup():
         db.session.add(current_setup_state)
         db.session.commit()
 
-    external_db_config = data.get('external_db_config', {})
-    external_database_url = None
-    if external_db_config and any(external_db_config.get(k) for k in ('host', 'port', 'username', 'database')):
-        external_database_url = _build_external_db_uri(external_db_config)
-
-    _save_secrets(db_config, database_url, secret_key, external_database_url, external_db_config)
-    if external_database_url:
-        current_app.config['SQLALCHEMY_EXTERNAL_UTIL_DATABASE_URI'] = external_database_url
+    _save_secrets(db_config, database_url, secret_key)
 
     # Hot-swap the running app's database to the new URI so login works without restart
     try:
         current_app.config['SQLALCHEMY_DATABASE_URI'] = resolved_url
         current_app.config['SECRET_KEY'] = secret_key
         db.session.remove()
-        if 'sqlalchemy' in current_app.extensions:
-            del current_app.extensions['sqlalchemy']
-        db.init_app(current_app)
-        with current_app.app_context():
-            db.create_all()
+        
+        # Hot-swap engine for Flask-SQLAlchemy 3.x
+        engines = getattr(db, '_app_engines', {}).get(current_app)
+        if engines is not None:
+            if None in engines:
+                engines[None].dispose()
+            
+            options = getattr(db, '_engine_options', {}).copy()
+            options.update(current_app.config.get("SQLALCHEMY_ENGINE_OPTIONS", {}))
+            options["url"] = resolved_url
+            
+            if hasattr(db, '_apply_driver_defaults'):
+                db._apply_driver_defaults(options, current_app)
+            if hasattr(db, '_make_engine'):
+                engines[None] = db._make_engine(None, options, current_app)
+            else:
+                import sqlalchemy
+                engines[None] = sqlalchemy.create_engine(resolved_url)
+                
     except Exception as swap_exc:
         import logging
         logging.getLogger(__name__).warning(f"Hot-swap DB engine failed (restart may be needed): {swap_exc}")

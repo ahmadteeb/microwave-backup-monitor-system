@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 EVENT_SEVERITY = {
     'mw_link_down': 'critical',
     'mw_link_recovered': 'info',
-    'fiber_util_high': 'warning',
-    'fiber_util_near_cap': 'critical',
+    'leg_util_high': 'warning',
+    'leg_util_near_cap': 'critical',
     'mw_util_high': 'warning',
     'consecutive_timeouts': 'critical',
     'ping_service_error': 'error'

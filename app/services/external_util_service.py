@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import create_engine, text
 from flask import current_app
 from app.extensions import db
-from app.models import Link, MetricSnapshot, LinkStatus, LegUtilizationSnapshot
+from app.models import Link, LinkStatus, ExternalDbConfig
 
 logger = logging.getLogger(__name__)
 _external_engine = None
@@ -11,15 +11,43 @@ _external_engine = None
 
 def _get_external_engine():
     global _external_engine
-    uri = current_app.config.get('SQLALCHEMY_EXTERNAL_UTIL_DATABASE_URI')
-    if not uri:
+    
+    ext_config = ExternalDbConfig.query.filter_by(active=True).first()
+    if not ext_config:
         return None
+        
+    from urllib.parse import quote_plus
+    from app.services.crypto_service import decrypt
+    
+    username = quote_plus(ext_config.username.strip())
+    password = ''
+    if ext_config.password_encrypted:
+        try:
+            password = quote_plus(decrypt(ext_config.password_encrypted))
+        except Exception as e:
+            logger.error(f"Failed to decrypt external DB password: {e}")
+            
+    host = ext_config.host.strip()
+    port = ext_config.port
+    database = ext_config.database.strip()
+    
+    uri = f"mysql+pymysql://{username}:{password}@{host}:{port}/{database}?charset=utf8mb4"
 
     if _external_engine is None or str(_external_engine.url) != uri:
         # Ensure driver is instructed to use UTF-8 and return unicode strings
         _external_engine = create_engine(uri, pool_pre_ping=True, connect_args={'charset': 'utf8mb4', 'use_unicode': True})
 
     return _external_engine
+
+
+def invalidate_external_engine():
+    global _external_engine
+    if _external_engine is not None:
+        try:
+            _external_engine.dispose()
+        except Exception as e:
+            logger.warning(f"Error disposing external engine: {e}")
+        _external_engine = None
 
 
 def lookup_link_info(link_id):
@@ -60,6 +88,48 @@ def lookup_leg_info(leg_name):
             result['LEG_Util_pct'] = None
         return result
 
+def refresh_external_utilization_for_single_link(link):
+    engine = _get_external_engine()
+    if engine is None:
+        return
+
+    row = lookup_link_info(link.link_id)
+    if row:
+        if row.get('Source_NE_Card'):
+            link.site_a = row.get('Source_NE_Card')
+        if row.get('Sink_NE_Card'):
+            link.site_b = row.get('Sink_NE_Card')
+
+        status = LinkStatus.query.filter_by(link_id=link.id).first()
+        if not status:
+            status = LinkStatus(link_id=link.id)
+            db.session.add(status)
+            
+        status.mw_util_pct = row.get('AVG_MAX_Util_RxTx_perc')
+        status.mw_capacity_mbps = row.get('XPIC_MW_Link_Capacity') if row.get('XPIC_MW_Link_Capacity') is not None else row.get('MW_Link_Capacity')
+        status.metric_source = 'external'
+        status.last_metric_at = datetime.utcnow()
+
+    if link.leg_name:
+        leg_row = lookup_leg_info(link.leg_name)
+        if leg_row:
+            status = LinkStatus.query.filter_by(link_id=link.id).first()
+            if not status:
+                status = LinkStatus(link_id=link.id)
+                db.session.add(status)
+            status.avg_max_mbitrate = leg_row.get('AVG_MAX_MBitRate')
+            status.interface_speed_min = leg_row.get('Interface_Speed_Min')
+            status.interface_speed_max = leg_row.get('Interface_Speed_Max')
+            status.sub_leg_count = leg_row.get('Sub_LEG_Count')
+            status.leg_source = 'external'
+            
+            if status.interface_speed_max:
+                try:
+                    status.leg_capacity_mbps = float(status.interface_speed_max)
+                    status.leg_util_pct = round((float(status.avg_max_mbitrate or 0) / float(status.interface_speed_max)) * 100, 1)
+                except (TypeError, ValueError, ZeroDivisionError):
+                    pass
+
 
 def refresh_external_utilization():
     engine = _get_external_engine()
@@ -79,21 +149,16 @@ def refresh_external_utilization():
             link.site_a = row.get('Source_NE_Card')
         if row.get('Sink_NE_Card'):
             link.site_b = row.get('Sink_NE_Card')
-        if row.get('Link_Name_Unif'):
-            link.leg_name = row.get('Link_Name_Unif')
-
-        snapshot = MetricSnapshot(
-            link_id=link.id,
-            mw_util_pct=row.get('AVG_MAX_Util_RxTx_perc'),
-            mw_capacity_mbps=row.get('XPIC_MW_Link_Capacity') if row.get('XPIC_MW_Link_Capacity') is not None else row.get('MW_Link_Capacity'),
-            source='external'
-        )
-        db.session.add(snapshot)
 
         status = LinkStatus.query.filter_by(link_id=link.id).first()
-        if status:
-            status.mw_util_pct = snapshot.mw_util_pct
-            status.last_metric_at = datetime.utcnow()
+        if not status:
+            status = LinkStatus(link_id=link.id)
+            db.session.add(status)
+            
+        status.mw_util_pct = row.get('AVG_MAX_Util_RxTx_perc')
+        status.mw_capacity_mbps = row.get('XPIC_MW_Link_Capacity') if row.get('XPIC_MW_Link_Capacity') is not None else row.get('MW_Link_Capacity')
+        status.metric_source = 'external'
+        status.last_metric_at = datetime.utcnow()
 
     # Refresh aggregated leg metadata files as snapshots for lookup and history.
     leg_names = db.session.query(Link.leg_name).filter(Link.leg_name.isnot(None)).distinct().all()
@@ -104,14 +169,23 @@ def refresh_external_utilization():
         if not row:
             continue
 
-        leg_snapshot = LegUtilizationSnapshot(
-            leg_name=row.get('LEG_Name'),
-            avg_max_mbitrate=row.get('AVG_MAX_MBitRate'),
-            interface_speed_min=row.get('Interface_Speed_Min'),
-            interface_speed_max=row.get('Interface_Speed_Max'),
-            sub_leg_count=row.get('Sub_LEG_Count'),
-            source='external'
-        )
-        db.session.add(leg_snapshot)
+        links = Link.query.filter_by(leg_name=row.get('LEG_Name')).all()
+        for link in links:
+            status = LinkStatus.query.filter_by(link_id=link.id).first()
+            if not status:
+                status = LinkStatus(link_id=link.id)
+                db.session.add(status)
+            status.avg_max_mbitrate = row.get('AVG_MAX_MBitRate')
+            status.interface_speed_min = row.get('Interface_Speed_Min')
+            status.interface_speed_max = row.get('Interface_Speed_Max')
+            status.sub_leg_count = row.get('Sub_LEG_Count')
+            status.leg_source = 'external'
+            
+            if status.interface_speed_max:
+                try:
+                    status.leg_capacity_mbps = float(status.interface_speed_max)
+                    status.leg_util_pct = round((float(status.avg_max_mbitrate or 0) / float(status.interface_speed_max)) * 100, 1)
+                except (TypeError, ValueError, ZeroDivisionError):
+                    pass
 
     db.session.commit()

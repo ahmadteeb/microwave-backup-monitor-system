@@ -65,7 +65,7 @@ function handleLinkStatusUpdate(update) {
       }
 
       // Update latency
-      const latencyCell = row.querySelector('td:nth-child(9)');
+      const latencyCell = row.querySelector('td:nth-child(11)');
       if (latencyCell) {
         latencyCell.innerHTML = update.latency_ms !== null
           ? `<span class="text-teal">${update.latency_ms}ms</span>`
@@ -76,7 +76,8 @@ function handleLinkStatusUpdate(update) {
       if (update.latest_metric) {
         const legCell = row.querySelector('td:nth-child(5)');
         const mwCell = row.querySelector('td:nth-child(6)');
-        const capCell = row.querySelector('td:nth-child(7)');
+        const legCapCell = row.querySelector('td:nth-child(7)');
+        const capCell = row.querySelector('td:nth-child(9)');
         if (legCell) {
           const legPct = update.latest_metric.leg_util_pct ?? 0;
           legCell.innerHTML = createUtilBar(legPct, getBarColor(legPct));
@@ -84,6 +85,10 @@ function handleLinkStatusUpdate(update) {
         if (mwCell) {
           const mwPct = update.latest_metric.mw_util_pct ?? 0;
           mwCell.innerHTML = createUtilBar(mwPct, getBarColor(mwPct));
+        }
+        if (legCapCell && update.latest_metric.leg_capacity_pct !== undefined) {
+          const legCapPct = update.latest_metric.leg_capacity_pct ?? 0;
+          legCapCell.innerHTML = createUtilBar(legCapPct, getBarColor(legCapPct));
         }
         if (capCell && update.latest_metric.mw_capacity_mbps !== undefined) {
           capCell.innerHTML = formatCapacity(update.latest_metric.mw_capacity_mbps);
@@ -108,7 +113,7 @@ function renderTable(links) {
   tableBody.innerHTML = '';
 
   if (links.length === 0) {
-    tableBody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted);">No links found matching criteria.</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="12" style="text-align: center; color: var(--text-muted);">No links found matching criteria.</td></tr>`;
     return;
   }
 
@@ -119,9 +124,15 @@ function renderTable(links) {
     const legColor = getBarColor(legPct);
     const legBar = createUtilBar(legPct, legColor);
 
+    const legBitrateDisplay = link.leg_bitrate !== null && link.leg_bitrate !== undefined ? `${Math.round(link.leg_bitrate).toLocaleString()} Mbps` : '<span class="text-muted">—</span>';
+
     const mwPct = link.latest_metric && link.latest_metric.mw_util_pct !== null ? link.latest_metric.mw_util_pct : 0;
     const mwColor = getBarColor(mwPct);
     const mwBar = createUtilBar(mwPct, mwColor);
+
+    const legCapacityPct = link.leg_capacity_pct !== null && link.leg_capacity_pct !== undefined ? link.leg_capacity_pct : 0;
+    const legCapacityColor = getBarColor(legCapacityPct);
+    const legCapacityBar = createUtilBar(legCapacityPct, legCapacityColor);
 
     const statusHtml = `<span class="status-badge ${link.status.toLowerCase()}">${link.status}</span>`;
 
@@ -144,6 +155,8 @@ function renderTable(links) {
       <td class="col-site"><div class="truncate" title="${escapeHtml(siteBFull)}">${siteBFull ? escapeHtml(siteBDisplay) : '<span class="text-muted">—</span>'}</div></td>
       <td>${legBar}</td>
       <td>${mwBar}</td>
+      <td>${legCapacityBar}</td>
+      <td class="text-mono">${legBitrateDisplay}</td>
       <td>${capacityDisplay}</td>
       <td>${statusHtml}</td>
       <td class="text-mono">${latencyHtml}</td>

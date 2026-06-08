@@ -18,7 +18,6 @@ class Link(db.Model):
     is_active = db.Column(db.Boolean, nullable=False, server_default='1', default=True)
 
     ping_results = db.relationship('PingResult', backref='link', lazy='dynamic', cascade='all, delete-orphan')
-    metrics = db.relationship('MetricSnapshot', backref='link', lazy='dynamic', cascade='all, delete-orphan')
     status = db.relationship('LinkStatus', backref='link', uselist=False, cascade='all, delete-orphan')
 
 class PingResult(db.Model):
@@ -32,25 +31,7 @@ class PingResult(db.Model):
     triggered_by = db.Column(db.String(20), nullable=False, server_default='scheduler', default='scheduler')
     triggered_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
 
-class MetricSnapshot(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    link_id = db.Column(db.Integer, db.ForeignKey('link.id'), nullable=False, index=True)
-    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
-    fiber_util_pct = db.Column(db.Float, nullable=True)
-    fiber_capacity_mbps = db.Column(db.Float, nullable=True)
-    mw_util_pct = db.Column(db.Float, nullable=True)
-    mw_capacity_mbps = db.Column(db.Float, nullable=True)
-    source = db.Column(db.String(20), nullable=True, default='manual')
 
-class LegUtilizationSnapshot(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    leg_name = db.Column(db.String(150), nullable=False, index=True)
-    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
-    avg_max_mbitrate = db.Column(db.Float, nullable=True)
-    interface_speed_min = db.Column(db.Integer, nullable=True)
-    interface_speed_max = db.Column(db.Integer, nullable=True)
-    sub_leg_count = db.Column(db.Integer, nullable=True)
-    source = db.Column(db.String(20), nullable=True, default='external')
 
 class JumpServer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -111,6 +92,7 @@ class User(db.Model):
     updated_smtp_configs = db.relationship('SmtpConfig', backref='updated_by', foreign_keys='SmtpConfig.updated_by_id')
     updated_jumpservers = db.relationship('JumpServer', backref='updated_by', foreign_keys='JumpServer.updated_by_id')
     updated_app_settings = db.relationship('AppSettings', backref='updated_by', foreign_keys='AppSettings.updated_by_id')
+    updated_external_db_configs = db.relationship('ExternalDbConfig', backref='updated_by', foreign_keys='ExternalDbConfig.updated_by_id')
 
 # class UserPermission(db.Model):
 #     id = db.Column(db.Integer, primary_key=True)
@@ -164,6 +146,17 @@ class SystemLog(db.Model):
     detail = db.Column(db.Text, nullable=True)
     ip_address = db.Column(db.String(45), nullable=True)
 
+class ExternalDbConfig(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    host = db.Column(db.String(256), nullable=False)
+    port = db.Column(db.Integer, nullable=False, default=3306)
+    username = db.Column(db.String(256), nullable=False)
+    password_encrypted = db.Column(db.String(500), nullable=True)
+    database = db.Column(db.String(256), nullable=False)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
 class AppSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     session_timeout_minutes = db.Column(db.Integer, nullable=False, default=480, server_default='480')
@@ -185,14 +178,21 @@ class LinkStatus(db.Model):
     last_ping_latency_ms = db.Column(db.Float, nullable=True)
     consecutive_timeouts = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     last_metric_at = db.Column(db.DateTime, nullable=True)
-    fiber_util_pct = db.Column(db.Float, nullable=True)
+    leg_util_pct = db.Column(db.Float, nullable=True)
+    leg_capacity_mbps = db.Column(db.Float, nullable=True)
     mw_util_pct = db.Column(db.Float, nullable=True)
+    mw_capacity_mbps = db.Column(db.Float, nullable=True)
+    avg_max_mbitrate = db.Column(db.Float, nullable=True)
+    interface_speed_min = db.Column(db.Integer, nullable=True)
+    interface_speed_max = db.Column(db.Integer, nullable=True)
+    sub_leg_count = db.Column(db.Integer, nullable=True)
+    metric_source = db.Column(db.String(20), nullable=True, default='manual')
+    leg_source = db.Column(db.String(20), nullable=True, default='external')
     last_mw_down_notified_at = db.Column(db.DateTime, nullable=True)
-    last_fiber_high_notified_at = db.Column(db.DateTime, nullable=True)
+    last_leg_high_notified_at = db.Column(db.DateTime, nullable=True)
     last_mw_high_notified_at = db.Column(db.DateTime, nullable=True)
-    last_fiber_near_cap_notified_at = db.Column(db.DateTime, nullable=True)
+    last_leg_near_cap_notified_at = db.Column(db.DateTime, nullable=True)
 
 # Indexes for performance on history queries
 
 db.Index('idx_ping_result_link_time', PingResult.link_id, PingResult.timestamp.desc())
-db.Index('idx_metric_link_time', MetricSnapshot.link_id, MetricSnapshot.timestamp.desc())

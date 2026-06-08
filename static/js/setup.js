@@ -520,12 +520,13 @@ function getFormPayload() {
         database: externalDbDatabase.value.trim()
       }
       : {},
-    jumpserver: {
+    jumpserver_enabled: jumpEnabled.checked,
+    jumpserver: jumpEnabled.checked ? {
       host: document.getElementById('jump-host').value.trim(),
       port: parseInt(document.getElementById('jump-port').value, 10),
       username: document.getElementById('jump-username').value.trim(),
       password: document.getElementById('jump-password').value
-    }
+    } : {}
   };
 }
 
