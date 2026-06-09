@@ -129,6 +129,16 @@
           </div>
           <div class="form-helper" id="modal-ip-helper">Required field: Provide a valid IPv4 address for link telemetry.</div>
         </div>
+        <div class="form-group">
+          <label class="form-label">Warning Threshold (%)</label>
+          <input type="number" id="modal-warning-thresh" class="form-control text-mono" min="1" max="100" placeholder="Default: 80">
+          <div class="form-helper">Optional override (e.g. 80)</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Critical Threshold (%)</label>
+          <input type="number" id="modal-critical-thresh" class="form-control text-mono" min="1" max="100" placeholder="Default: 90">
+          <div class="form-helper">Optional override (e.g. 90)</div>
+        </div>
         <!-- Record utilization removed from Add/Edit link dialog per UX request -->
       </div>
       <div class="modal-footer">
@@ -159,7 +169,7 @@
   </div>
 
   <div class="modal-overlay" id="settings-modal">
-    <div class="modal settings-modal">
+    <div class="modal settings-modal" style="width: 800px; max-width: 95vw;">
       <div class="modal-header">
         <div class="modal-title"><i class="fa-solid fa-gear text-teal"></i> SYSTEM SETTINGS</div>
         <button class="modal-close" id="btn-close-settings"><i class="fa-solid fa-xmark"></i></button>
@@ -172,6 +182,7 @@
             <button class="tab-btn" data-tab="jumpserver">JUMP SERVER</button>
             <button class="tab-btn" data-tab="external-db">EXTERNAL DB</button>
             <button class="tab-btn" data-tab="notifications">NOTIFICATIONS</button>
+            <button class="tab-btn" data-tab="webhooks">WEBHOOKS</button>
           </div>
           <div class="tab-content">
             <div class="tab-pane active" data-tab="general">
@@ -185,6 +196,16 @@
                 <label class="form-label">Session Timeout (minutes)</label>
                 <input type="number" id="session-timeout" class="form-control text-mono" min="5" max="1440">
                 <div class="form-helper">Auto-logout after inactivity (5-1440 minutes)</div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Daily Report Hour</label>
+                <input type="number" id="daily-report-hour" class="form-control text-mono" min="0" max="23">
+                <div class="form-helper">Hour of day to send daily report (0-23)</div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Daily Report Minute</label>
+                <input type="number" id="daily-report-minute" class="form-control text-mono" min="0" max="59">
+                <div class="form-helper">Minute of hour to send daily report (0-59)</div>
               </div>
             </div>
             <div class="tab-pane" data-tab="smtp">
@@ -288,6 +309,14 @@
               <div class="form-actions external-db-field">
                 <button class="btn-primary" id="btn-test-external-db"><i class="fa-solid fa-database"></i> TEST CONNECTION</button>
               </div>
+              <div class="modal-section external-db-field" style="margin-top: 20px;">
+                <div class="section-label">Connection Status</div>
+                <div class="info-list" id="external-db-status-panel">
+                  <div class="lookup-detail"><strong>Status:</strong> <span id="ext-db-status-val">Loading...</span></div>
+                  <div class="lookup-detail"><strong>Last Sync:</strong> <span id="ext-db-last-sync">N/A</span></div>
+                  <div class="lookup-detail"><strong>Last Error:</strong> <span id="ext-db-last-error" style="color:var(--danger)">None</span></div>
+                </div>
+              </div>
             </div>
             <div class="tab-pane" data-tab="notifications">
               <h4>Notification Preferences</h4>
@@ -319,6 +348,48 @@
                     <span class="toggle-track"></span>
                     <span>System errors</span>
                   </label>
+                </div>
+              </div>
+            </div>
+            <div class="tab-pane" data-tab="webhooks">
+              <h4>Webhook & Slack Integrations</h4>
+              <div style="border: 1px solid var(--border-color); border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 24px; background: rgba(0,0,0,0.1);">
+                <table style="width: 100%; text-align: left; border-collapse: collapse;">
+                  <thead style="background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color);">
+                    <tr>
+                      <th style="padding: 12px; font-size: 11px; text-transform: uppercase; color: var(--text-secondary);">Label</th>
+                      <th style="padding: 12px; font-size: 11px; text-transform: uppercase; color: var(--text-secondary);">Type</th>
+                      <th style="padding: 12px; font-size: 11px; text-transform: uppercase; color: var(--text-secondary);">URL</th>
+                      <th style="padding: 12px; font-size: 11px; text-transform: uppercase; color: var(--text-secondary);">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="webhooks-table-body">
+                    <!-- Webhooks will be populated here -->
+                  </tbody>
+                </table>
+              </div>
+              
+              <div class="modal-section" style="border-top: 1px solid var(--border-color); padding-top: 20px; margin-top: 0;">
+                <div class="section-label">Add New Webhook</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                  <div class="form-group">
+                    <label class="form-label">Label</label>
+                    <input type="text" id="webhook-label" class="form-control" placeholder="e.g. NOC Slack Channel">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Channel Type</label>
+                    <select id="webhook-type" class="form-control">
+                      <option value="slack">Slack</option>
+                      <option value="generic">Generic POST</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-group full" style="margin-bottom: 16px;">
+                  <label class="form-label">Webhook URL</label>
+                  <input type="text" id="webhook-url" class="form-control text-mono" placeholder="https://hooks.slack.com/services/...">
+                </div>
+                <div class="form-actions">
+                  <button class="btn-secondary btn-inline" id="btn-add-webhook" type="button"><i class="fa-solid fa-plus"></i> ADD WEBHOOK</button>
                 </div>
               </div>
             </div>

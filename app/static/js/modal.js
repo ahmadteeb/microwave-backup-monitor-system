@@ -12,6 +12,8 @@ const inputLegName = document.getElementById('modal-leg-name');
 const inputSiteA = document.getElementById('modal-site-a');
 const inputSiteB = document.getElementById('modal-site-b');
 const inputMwIp = document.getElementById('modal-mw-ip');
+const inputWarningThresh = document.getElementById('modal-warning-thresh');
+const inputCriticalThresh = document.getElementById('modal-critical-thresh');
 const ipHelper = document.getElementById('modal-ip-helper');
 const ipErrorIcon = document.getElementById('ip-error-icon');
 const btnFetchLinkInfo = document.getElementById('btn-fetch-link-info');
@@ -33,6 +35,8 @@ function openModal(mode = 'create', data = {}) {
     inputSiteA.value = data.site_a || '';
     inputSiteB.value = data.site_b || '';
     inputMwIp.value = data.mw_ip;
+    inputWarningThresh.value = data.util_warning_threshold_pct !== null ? data.util_warning_threshold_pct : '';
+    inputCriticalThresh.value = data.util_critical_threshold_pct !== null ? data.util_critical_threshold_pct : '';
     // Record utilization UI removed
   } else {
     // Create mode: no record utilization UI
@@ -52,6 +56,8 @@ function resetForm() {
   inputSiteA.value = '';
   inputSiteB.value = '';
   inputMwIp.value = '';
+  inputWarningThresh.value = '';
+  inputCriticalThresh.value = '';
   resetMetricFields();
   clearExternalLookup();
   inputMwIp.classList.remove('error');
@@ -105,6 +111,8 @@ async function handleSave() {
   const siteA = inputSiteA.value.trim();
   const siteB = inputSiteB.value.trim();
   const mwIp = inputMwIp.value.trim();
+  const warningThresh = inputWarningThresh.value ? parseInt(inputWarningThresh.value, 10) : null;
+  const criticalThresh = inputCriticalThresh.value ? parseInt(inputCriticalThresh.value, 10) : null;
   
   if (!linkId || !legName || !mwIp) {
     showError('LINK_ID, LEG_NAME, and MW_IP are required.');
@@ -121,7 +129,9 @@ async function handleSave() {
     leg_name: legName,
     site_a: siteA,
     site_b: siteB,
-    mw_ip: mwIp
+    mw_ip: mwIp,
+    util_warning_threshold_pct: warningThresh,
+    util_critical_threshold_pct: criticalThresh
   };
   
   const id = modalId.value;

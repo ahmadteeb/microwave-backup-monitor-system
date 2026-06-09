@@ -1037,6 +1037,7 @@ tr:hover {
 
 .tab-buttons {
   display: flex;
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--border-color);
   margin-bottom: 20px;
 }

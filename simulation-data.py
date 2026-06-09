@@ -76,7 +76,7 @@ def create_test_links():
             db.session.add(status)
 
             created_count += 1
-            print(f"Created link: {link_id} ({ip}) - {leg_name}")
+            print(f"Created link: {link_id} (192.168.100.{i}) - {leg_name}")
 
         db.session.commit()
         print(f"\nSuccessfully created {created_count} test links!")

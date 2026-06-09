@@ -12,18 +12,24 @@ const btnTestExternalDb = document.getElementById('btn-test-external-db');
 const externalDbEnabledCheckbox = document.getElementById('external-db-enabled');
 const jumpEnabledCheckbox = document.getElementById('jump-enabled');
 
+// Webhook UI Elements
+const webhooksTableBody = document.getElementById('webhooks-table-body');
+const btnAddWebhook = document.getElementById('btn-add-webhook');
+
 // Current settings data
 let currentSettings = {};
 
 // Load settings
 async function loadSettings() {
   try {
-    const [appSettings, smtpSettings, jumpSettings, externalDbSettings, notificationSettings] = await Promise.all([
+    const [appSettings, smtpSettings, jumpSettings, externalDbSettings, notificationSettings, webhooksData, externalDbStatus] = await Promise.all([
       window.fetchAPI('/api/settings/app'),
       window.fetchAPI('/api/settings/smtp'),
       window.fetchAPI('/api/settings/jumpserver'),
       window.fetchAPI('/api/settings/external-db'),
-      window.fetchAPI('/api/notifications/subscriptions')
+      window.fetchAPI('/api/notifications/subscriptions'),
+      window.fetchAPI('/api/settings/webhooks'),
+      window.fetchAPI('/api/settings/external-db/status').catch(() => ({}))
     ]);
 
     const notificationMap = (notificationSettings.subscriptions || []).reduce((map, record) => {
@@ -36,7 +42,9 @@ async function loadSettings() {
       smtp: smtpSettings.smtp || {},
       jump: jumpSettings.jumpserver || {},
       external_db: externalDbSettings.external_db || {},
-      notifications: notificationMap
+      notifications: notificationMap,
+      webhooks: webhooksData.webhooks || [],
+      external_db_status: externalDbStatus || {}
     };
 
     populateForm();
@@ -51,6 +59,8 @@ function populateForm() {
   // General settings
   document.getElementById('ping-interval').value = currentSettings.app.ping_interval_seconds || 60;
   document.getElementById('session-timeout').value = currentSettings.app.session_timeout_minutes || 480;
+  document.getElementById('daily-report-hour').value = currentSettings.app.daily_report_hour !== undefined ? currentSettings.app.daily_report_hour : 8;
+  document.getElementById('daily-report-minute').value = currentSettings.app.daily_report_minute !== undefined ? currentSettings.app.daily_report_minute : 0;
 
   // SMTP settings (FIX: use 'host' not 'server')
   document.getElementById('smtp-enabled').checked = currentSettings.smtp.enabled || false;
@@ -79,11 +89,37 @@ function populateForm() {
   document.getElementById('external-db-database').value = currentSettings.external_db.database || '';
   updateExternalDbFieldVisibility();
 
+  // Populate External DB Status
+  const statusVal = document.getElementById('ext-db-status-val');
+  const syncVal = document.getElementById('ext-db-last-sync');
+  const errVal = document.getElementById('ext-db-last-error');
+  
+  if (currentSettings.external_db_status.configured) {
+    statusVal.textContent = currentSettings.external_db_status.last_error ? 'Error' : 'Healthy';
+    statusVal.style.color = currentSettings.external_db_status.last_error ? 'var(--danger)' : 'var(--success)';
+    
+    syncVal.textContent = currentSettings.external_db_status.last_sync_at ? new Date(currentSettings.external_db_status.last_sync_at).toLocaleString() : 'Never';
+    
+    if (currentSettings.external_db_status.last_error) {
+      const errTime = currentSettings.external_db_status.last_error_at ? new Date(currentSettings.external_db_status.last_error_at).toLocaleString() : '';
+      errVal.textContent = `${currentSettings.external_db_status.last_error} (${errTime})`;
+    } else {
+      errVal.textContent = 'None';
+    }
+  } else {
+    statusVal.textContent = 'Not Configured';
+    statusVal.style.color = 'var(--text-muted)';
+    syncVal.textContent = 'N/A';
+    errVal.textContent = 'None';
+  }
+
   // Notification settings
   document.getElementById('notify-link-up').checked = currentSettings.notifications.mw_link_recovered;
   document.getElementById('notify-link-down').checked = currentSettings.notifications.mw_link_down;
   document.getElementById('notify-high-util').checked = currentSettings.notifications.mw_util_high;
   document.getElementById('notify-system-error').checked = currentSettings.notifications.ping_service_error;
+
+  renderWebhooks();
 }
 
 // Save settings
@@ -100,7 +136,9 @@ async function saveSettings() {
   const settingsData = {
     app: {
       ping_interval_seconds: parseInt(document.getElementById('ping-interval').value),
-      session_timeout_minutes: parseInt(document.getElementById('session-timeout').value)
+      session_timeout_minutes: parseInt(document.getElementById('session-timeout').value),
+      daily_report_hour: parseInt(document.getElementById('daily-report-hour').value) || 0,
+      daily_report_minute: parseInt(document.getElementById('daily-report-minute').value) || 0
     },
     smtp: {
       enabled: smtpEnabled,
@@ -316,11 +354,80 @@ async function testExternalDb() {
       body: JSON.stringify(externalDbData)
     });
     window.showToast('External DB connection successful!', 'success');
+    loadSettings(); // refresh status
   } catch (error) {
     console.error("External DB test failed", error);
     window.showToast('External DB test failed: ' + error.message, 'error');
+    loadSettings(); // refresh status even on fail to show error
   } finally {
     window.setButtonLoading(btnTestExternalDb, false);
+  }
+}
+
+// Webhooks logic
+function renderWebhooks() {
+  if (!webhooksTableBody) return;
+  webhooksTableBody.innerHTML = '';
+  
+  if (currentSettings.webhooks.length === 0) {
+    webhooksTableBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No webhooks configured.</td></tr>';
+    return;
+  }
+
+  currentSettings.webhooks.forEach(wh => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${window.escapeHtml ? window.escapeHtml(wh.label) : wh.label}</strong></td>
+      <td><span class="status-badge" style="background: var(--bg-tertiary); color: var(--text-primary);">${wh.channel_type.toUpperCase()}</span></td>
+      <td class="text-mono" style="font-size: 0.85rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${wh.url}">${wh.url}</td>
+      <td>
+        <button class="btn-danger btn-inline btn-delete-webhook" data-id="${wh.id}"><i class="fa-solid fa-trash"></i></button>
+      </td>
+    `;
+    webhooksTableBody.appendChild(tr);
+  });
+
+  document.querySelectorAll('.btn-delete-webhook').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.currentTarget.dataset.id;
+      if (confirm('Delete this webhook?')) {
+        try {
+          await window.fetchAPI(`/api/settings/webhooks/${id}`, { method: 'DELETE' });
+          window.showToast('Webhook deleted', 'success');
+          loadSettings();
+        } catch (err) {
+          window.showToast('Failed to delete webhook: ' + err.message, 'error');
+        }
+      }
+    });
+  });
+}
+
+async function addWebhook() {
+  const label = document.getElementById('webhook-label').value.trim();
+  const channel_type = document.getElementById('webhook-type').value;
+  const url = document.getElementById('webhook-url').value.trim();
+
+  if (!label || !url) {
+    window.showToast('Label and URL are required', 'error');
+    return;
+  }
+
+  window.setButtonLoading(btnAddWebhook, true, 'ADDING...');
+  try {
+    await window.fetchAPI('/api/settings/webhooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label, channel_type, url })
+    });
+    window.showToast('Webhook added successfully', 'success');
+    document.getElementById('webhook-label').value = '';
+    document.getElementById('webhook-url').value = '';
+    loadSettings();
+  } catch (err) {
+    window.showToast('Failed to add webhook: ' + err.message, 'error');
+  } finally {
+    window.setButtonLoading(btnAddWebhook, false);
   }
 }
 
@@ -359,6 +466,7 @@ btnSaveSettings.addEventListener('click', saveSettings);
 btnTestSmtp.addEventListener('click', testSmtp);
 btnTestJumpserver.addEventListener('click', testJumpserver);
 btnTestExternalDb.addEventListener('click', testExternalDb);
+if (btnAddWebhook) btnAddWebhook.addEventListener('click', addWebhook);
 document.getElementById('smtp-enabled').addEventListener('change', updateSmtpFieldVisibility);
 document.getElementById('jump-enabled').addEventListener('change', updateJumpServerFieldVisibility);
 document.getElementById('external-db-enabled').addEventListener('change', updateExternalDbFieldVisibility);
