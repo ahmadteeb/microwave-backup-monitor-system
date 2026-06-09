@@ -102,7 +102,7 @@ def _check_and_update_cooldown(event_key, link_id):
         return True  # fail-open: allow notification if cooldown check errors
 
 
-def _send_email_notification(user_email, subject, body, smtp_config, html_body=None):
+def _send_email_notification(user_email, subject, body, smtp_config, html_body=None, thread_id=None):
     if not smtp_config:
         return
 
@@ -129,6 +129,15 @@ def _send_email_notification(user_email, subject, body, smtp_config, html_body=N
         msg['Subject'] = subject
         msg['From'] = smtp_config['from_address']
         msg['To'] = user_email
+        
+        import uuid
+        msg['Message-ID'] = f"<{uuid.uuid4().hex}@mwmonitor.local>"
+        if thread_id:
+            msg['References'] = f"<{thread_id}@mwmonitor.local>"
+            msg['In-Reply-To'] = f"<{thread_id}@mwmonitor.local>"
+            # Also add a Thread-Index or Thread-Topic for Outlook specifically if desired,
+            # but standard In-Reply-To/References is usually enough.
+
         msg.set_content(body)
         if html_body:
             msg.add_alternative(html_body, subtype='html')
@@ -138,16 +147,16 @@ def _send_email_notification(user_email, subject, body, smtp_config, html_body=N
         logger.error(f"Email send failed to {user_email}: {exc}")
 
 
-def _deliver_emails(payloads_or_emails, subject, body, smtp_config, html_body=None):
+def _deliver_emails(payloads_or_emails, subject, body, smtp_config, html_body=None, thread_id=None):
     for item in payloads_or_emails:
         if isinstance(item, dict):
             email = item.get('email')
             user_html = item.get('html_body') or html_body
             if email:
-                _send_email_notification(email, subject, body, smtp_config, html_body=user_html)
+                _send_email_notification(email, subject, body, smtp_config, html_body=user_html, thread_id=thread_id)
         else:
             if item:
-                _send_email_notification(item, subject, body, smtp_config, html_body=html_body)
+                _send_email_notification(item, subject, body, smtp_config, html_body=html_body, thread_id=thread_id)
 
 
 def _deliver_webhooks(event_key, message, link, severity):
@@ -342,7 +351,8 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
                     'use_ssl': getattr(smtp_record, 'use_ssl', False),
                 }
             if smtp_config:
-                thread = threading.Thread(target=_deliver_emails, args=(email_payloads, subject, body, smtp_config, None), daemon=True)
+                thread_id = f"thread-link-{link.link_id}" if link else None
+                thread = threading.Thread(target=_deliver_emails, args=(email_payloads, subject, body, smtp_config, None, thread_id), daemon=True)
                 thread.start()
 
             # Deliver webhooks (Tier 3.4)
