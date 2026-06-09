@@ -47,7 +47,7 @@ def create_test_links():
                 leg_name=leg_name,
                 site_a=site_a,
                 site_b=site_b,
-                mw_ip=f"192.168.100.{i}",
+                mw_ip=f"172.20.0.{i}",
                 link_type=link_type,
                 notes=f"Simulated backup link {i} for demonstration purposes. Connecting {site_a} to {site_b}.",
                 is_active=True
@@ -76,7 +76,7 @@ def create_test_links():
             db.session.add(status)
 
             created_count += 1
-            print(f"Created link: {link_id} (192.168.100.{i}) - {leg_name}")
+            print(f"Created link: {link_id} (172.20.0.{i}) - {leg_name}")
 
         db.session.commit()
         print(f"\nSuccessfully created {created_count} test links!")

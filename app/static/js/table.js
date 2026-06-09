@@ -88,7 +88,7 @@ function handleLinkStatusUpdate(update) {
         }
         if (legCapCell && update.latest_metric.leg_capacity_pct !== undefined) {
           const legCapPct = update.latest_metric.leg_capacity_pct ?? 0;
-          legCapCell.innerHTML = createUtilBar(legCapPct, getBarColor(legCapPct));
+          legCapCell.innerHTML = createUtilBar(legCapPct, getCapacityBarColor(legCapPct));
         }
         if (capCell && update.latest_metric.mw_capacity_mbps !== undefined) {
           capCell.innerHTML = formatCapacity(update.latest_metric.mw_capacity_mbps);
@@ -131,7 +131,7 @@ function renderTable(links) {
     const mwBar = createUtilBar(mwPct, mwColor);
 
     const legCapacityPct = link.leg_capacity_pct !== null && link.leg_capacity_pct !== undefined ? link.leg_capacity_pct : 0;
-    const legCapacityColor = getBarColor(legCapacityPct);
+    const legCapacityColor = getCapacityBarColor(legCapacityPct);
     const legCapacityBar = createUtilBar(legCapacityPct, legCapacityColor);
 
     const statusHtml = `<span class="status-badge ${link.status.toLowerCase()}">${link.status}</span>`;
@@ -225,6 +225,12 @@ function getBarColor(pct) {
   if (pct >= 90) return '--bar-critical';
   if (pct >= 70) return '--bar-warning';
   return '--bar-optimal';
+}
+
+function getCapacityBarColor(pct) {
+  if (pct > 50) return '--bar-optimal';
+  if (pct >= 30) return '--bar-warning';
+  return '--bar-critical';
 }
 
 function updatePagination(data) {
