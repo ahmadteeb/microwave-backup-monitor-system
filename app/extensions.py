@@ -9,4 +9,4 @@ from flask_limiter.util import get_remote_address
 db = SQLAlchemy()
 bcrypt = Bcrypt()
 socketio = SocketIO()
-limiter = Limiter(key_func=get_remote_address, default_limits=["200 per minute"])
+limiter = Limiter(key_func=get_remote_address, default_limits=["200 per minute"], storage_uri="memory://")

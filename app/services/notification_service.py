@@ -1,6 +1,6 @@
 import smtplib
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 import logging
 from flask import render_template
@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 EVENT_SEVERITY = {
     'mw_link_down': 'critical',
+    'mw_link_flapping': 'critical',
     'mw_link_recovered': 'info',
     'leg_util_high': 'warning',
     'leg_util_near_cap': 'critical',
@@ -23,6 +24,7 @@ EVENT_SEVERITY = {
 # Notification cooldown in seconds per event type (Tier 1.2)
 NOTIFICATION_COOLDOWN_SECONDS = {
     'mw_link_down': 1800,          # 30 min
+    'mw_link_flapping': 1800,      # 30 min
     'consecutive_timeouts': 3600,  # 1 hour
     'leg_util_high': 3600,
     'leg_util_near_cap': 1800,
@@ -32,19 +34,22 @@ NOTIFICATION_COOLDOWN_SECONDS = {
 }
 
 # Severity-aware email subject templates (Tier 1.2)
+# Using uniform subjects for link events to ensure strict email client threading
 SUBJECT_TEMPLATES = {
-    'mw_link_down':        '\U0001f534 [CRITICAL] Link Down \u2014 {leg_name}',
-    'mw_link_recovered':   '\U0001f7e2 [RESOLVED] Link Recovered \u2014 {leg_name}',
-    'leg_util_high':       '\U0001f7e1 [WARNING] High Leg Utilization \u2014 {leg_name}',
-    'mw_util_high':        '\U0001f7e1 [WARNING] High MW Utilization \u2014 {leg_name}',
-    'leg_util_near_cap':   '\U0001f534 [CRITICAL] Near Capacity \u2014 {leg_name}',
-    'consecutive_timeouts':'\U0001f534 [CRITICAL] Consecutive Timeouts \u2014 {leg_name}',
-    'ping_service_error':  '\u26a0\ufe0f [ERROR] Ping Service Error',
+    'mw_link_down':        '[MW Monitor] Link Alert \u2014 {leg_name}',
+    'mw_link_flapping':    '[MW Monitor] Link Alert \u2014 {leg_name}',
+    'mw_link_recovered':   '[MW Monitor] Link Alert \u2014 {leg_name}',
+    'leg_util_high':       '[MW Monitor] Link Alert \u2014 {leg_name}',
+    'mw_util_high':        '[MW Monitor] Link Alert \u2014 {leg_name}',
+    'leg_util_near_cap':   '[MW Monitor] Link Alert \u2014 {leg_name}',
+    'consecutive_timeouts':'[MW Monitor] Link Alert \u2014 {leg_name}',
+    'ping_service_error':  '[MW Monitor] System Alert \u2014 Ping Service Error',
 }
 
 # Maps event_key to the LinkStatus timestamp column used for cooldown tracking
 _COOLDOWN_COLUMN_MAP = {
     'mw_link_down': 'last_mw_down_notified_at',
+    'mw_link_flapping': 'last_mw_down_notified_at',
     'consecutive_timeouts': 'last_mw_down_notified_at',
     'leg_util_high': 'last_leg_high_notified_at',
     'mw_util_high': 'last_mw_high_notified_at',
@@ -86,7 +91,7 @@ def _check_and_update_cooldown(event_key, link_id):
         if last_notified is not None:
             elapsed = (now - last_notified).total_seconds()
             if elapsed < cooldown:
-                logger.warning(
+                logger.debug(
                     f"Notification suppressed by cooldown: event={event_key}, "
                     f"link={link_id}, elapsed={elapsed:.0f}s, cooldown={cooldown}s"
                 )
@@ -131,16 +136,37 @@ def _send_email_notification(user_email, subject, body, smtp_config, html_body=N
         msg['To'] = user_email
         
         import uuid
-        msg['Message-ID'] = f"<{uuid.uuid4().hex}@mwmonitor.local>"
-        if thread_id:
-            msg['References'] = f"<{thread_id}@mwmonitor.local>"
-            msg['In-Reply-To'] = f"<{thread_id}@mwmonitor.local>"
-            # Also add a Thread-Index or Thread-Topic for Outlook specifically if desired,
-            # but standard In-Reply-To/References is usually enough.
+        import hashlib
+        import base64
+        
+        # Every email gets exactly one Message-ID header
+        if thread_id and isinstance(thread_id, dict) and thread_id.get('msg_id'):
+            msg['Message-ID'] = thread_id['msg_id']
+        else:
+            msg['Message-ID'] = f"<{uuid.uuid4().hex}@mwmonitor.local>"
+            
+        if thread_id and isinstance(thread_id, dict):
+            if thread_id.get('in_reply_to'):
+                msg['References'] = thread_id['in_reply_to']
+                msg['In-Reply-To'] = thread_id['in_reply_to']
+                
+            thread_base = thread_id.get('thread_index_base')
+            if thread_base:
+                # Outlook strict threading headers
+                msg['Thread-Topic'] = subject
+                
+                # Generate a consistent 22-byte Thread-Index based on the thread base (link_id)
+                h = hashlib.md5(thread_base.encode('utf-8')).digest()
+                # 1 byte header (0x01) + 5 bytes fake timestamp + 16 bytes hash = 22 bytes
+                thread_index_bytes = b'\x01\x00\x00\x00\x00\x00' + h[:16]
+                msg['Thread-Index'] = base64.b64encode(thread_index_bytes).decode('ascii')
 
         msg.set_content(body)
         if html_body:
             msg.add_alternative(html_body, subtype='html')
+            
+        logger.info(f"Sending Email -> To: {user_email} | Message-ID: {msg.get('Message-ID')} | In-Reply-To: {msg.get('In-Reply-To')} | Thread-Index: {msg.get('Thread-Index')} | Subject: {subject}")
+            
         server.send_message(msg)
         server.quit()
     except Exception as exc:
@@ -351,8 +377,34 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
                     'use_ssl': getattr(smtp_record, 'use_ssl', False),
                 }
             if smtp_config:
-                thread_id = f"thread-link-{link.link_id}" if link else None
-                thread = threading.Thread(target=_deliver_emails, args=(email_payloads, subject, body, smtp_config, None, thread_id), daemon=True)
+                import uuid
+                
+                thread_id_payload = {
+                    'msg_id': f"<{uuid.uuid4().hex}@mwmonitor.local>",
+                    'in_reply_to': None,
+                    'thread_index_base': f"link-{link.link_id}" if link else None
+                }
+                
+                if link:
+                    try:
+                        from app.models import LinkEventLog
+                        events = LinkEventLog.query.filter_by(link_id=link.id).order_by(LinkEventLog.timestamp.desc()).limit(2).all()
+                        if events:
+                            # If the latest event was created within the last 15 seconds, it was just flushed
+                            # by the current transaction, so this email represents that exact event.
+                            now = datetime.utcnow()
+                            # Use offset-naive comparison since events[0].timestamp is naive
+                            if (now - events[0].timestamp).total_seconds() < 15:
+                                thread_id_payload['msg_id'] = f"<event-{events[0].id}@mwmonitor.local>"
+                                if len(events) > 1:
+                                    thread_id_payload['in_reply_to'] = f"<event-{events[1].id}@mwmonitor.local>"
+                            else:
+                                # This is a secondary alert (like high util), it replies to the current active event
+                                thread_id_payload['in_reply_to'] = f"<event-{events[0].id}@mwmonitor.local>"
+                    except Exception as e:
+                        logger.error(f"Failed to generate thread IDs: {e}")
+                
+                thread = threading.Thread(target=_deliver_emails, args=(email_payloads, subject, body, smtp_config, None, thread_id_payload), daemon=True)
                 thread.start()
 
             # Deliver webhooks (Tier 3.4)

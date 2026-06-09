@@ -87,13 +87,14 @@ def _run_local_ping(ip):
 
     try:
         raw_output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True, timeout=(settings['count'] * settings['timeout'] + 10))
-    except subprocess.CalledProcessError as e:
-        raw_output = e.output
-    except subprocess.TimeoutExpired as e:
-        if e.output:
-            raw_output = e.output.decode(errors='ignore') if isinstance(e.output, (bytes, bytearray)) else str(e.output)
+    except Exception as e:
+        raw_output = getattr(e, 'output', None)
+        if not raw_output:
+            raw_output = f"100% packet loss. Ping failed: {str(e)}"
+        elif isinstance(raw_output, (bytes, bytearray)):
+            raw_output = raw_output.decode(errors='ignore')
         else:
-            raw_output = '100% packet loss'
+            raw_output = str(raw_output)
 
     return raw_output
 
@@ -254,7 +255,7 @@ def _build_link_status(link, reachable, latency_ms, packet_loss, result_timestam
                 db.session.add(flapping_event)
                 
                 send_event_notification(
-                    'mw_link_down',
+                    'mw_link_flapping',
                     f'Link {link.link_id} is flapping — {transition_count} state changes in {FLAPPING_WINDOW_MINUTES} minutes.',
                     link_id=link.link_id,
                     severity='critical'
