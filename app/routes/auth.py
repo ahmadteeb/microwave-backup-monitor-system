@@ -3,7 +3,7 @@ from flask import Blueprint, request, jsonify, session
 from sqlalchemy import func
 from app.models import db, User
 from app.services.log_service import write_log
-from app.extensions import bcrypt
+from app.extensions import bcrypt, limiter
 from app.permissions import has_permission, ROLE_DEFAULTS
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
@@ -56,6 +56,7 @@ def get_me():
 
 
 @auth_bp.route('/login', methods=['POST'])
+@limiter.limit("10 per minute")
 def login():
     data = request.get_json() or {}
     username = _normalize_username(data.get('username'))
@@ -113,6 +114,7 @@ def logout():
 
 
 @auth_bp.route('/change-password', methods=['POST'])
+@limiter.limit("5 per minute")
 def change_password():
     user_id = session.get('user_id')
     if not user_id:

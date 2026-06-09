@@ -9,6 +9,8 @@ MAJOR CHANGES:
 - UPDATED: Uses persistent SSHSessionManager instead of per-cycle SSH connect/disconnect
 - Each worker thread uses its own DB session scope to avoid conflicts
 - Original ping_single_link() now uses SSHSessionManager for persistent connections
+- ADDED: Flapping guard — detects rapid state changes and suppresses individual events
+- ADDED: Per-link utilization thresholds (Tier 3.2)
 """
 
 import re
@@ -16,7 +18,7 @@ import time
 import logging
 import platform
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import current_app
 from app.models import db, Link, PingResult, JumpServer, AppSettings, LinkStatus, LinkEventLog
@@ -28,6 +30,12 @@ logger = logging.getLogger(__name__)
 
 # Global app instance for background threads (set by scheduler or tests)
 _app_instance = None
+
+# Flapping detection parameters
+FLAPPING_TRANSITION_COUNT = 5   # number of state changes to trigger flapping
+FLAPPING_WINDOW_MINUTES = 10    # time window to count transitions
+FLAPPING_STABLE_CYCLES = 2      # consecutive stable (up) cycles to exit flapping
+
 
 def set_app_instance(app):
     """Set the Flask app instance for use in background threads."""
@@ -90,14 +98,19 @@ def _run_local_ping(ip):
     return raw_output
 
 
-def _get_ping_settings():
-    """Fetch ping settings from DB or app config (safe for use in background threads)."""
+def _get_ping_settings(link=None):
+    """
+    Fetch ping settings from DB or app config (safe for use in background threads).
+    
+    If a Link object is provided, per-link utilization thresholds override the
+    global AppSettings values when set (Tier 3.2).
+    """
     try:
         settings = db.session.get(AppSettings, 1)
     except Exception:
         settings = None
     
-    return {
+    result = {
         'count': settings.ping_count if settings else current_app.config.get('PING_COUNT', 3),
         'timeout': settings.ping_timeout_seconds if settings else current_app.config.get('PING_TIMEOUT', 2),
         'consecutive_timeout_threshold': settings.consecutive_timeout_alert_threshold if settings else 5,
@@ -105,6 +118,15 @@ def _get_ping_settings():
         'util_critical_threshold_pct': settings.util_critical_threshold_pct if settings else 90.0,
         'concurrency': settings.ping_concurrency if settings else 10,
     }
+
+    # Override with per-link thresholds if set (Tier 3.2)
+    if link is not None:
+        if link.util_warning_threshold_pct is not None:
+            result['util_warning_threshold_pct'] = link.util_warning_threshold_pct
+        if link.util_critical_threshold_pct is not None:
+            result['util_critical_threshold_pct'] = link.util_critical_threshold_pct
+
+    return result
 
 
 def _derive_status(reachable, status_record, settings):
@@ -120,6 +142,22 @@ def _derive_status(reachable, status_record, settings):
     return 'up'
 
 
+def _check_flapping(link, result_timestamp):
+    """
+    Detect flapping: if a link has >= FLAPPING_TRANSITION_COUNT state transitions
+    (UP/DOWN events) within the past FLAPPING_WINDOW_MINUTES, it is flapping.
+    
+    Returns (is_flapping: bool, transition_count: int)
+    """
+    window_start = result_timestamp - timedelta(minutes=FLAPPING_WINDOW_MINUTES)
+    recent_events = LinkEventLog.query.filter(
+        LinkEventLog.link_id == link.id,
+        LinkEventLog.event_type.in_(['UP', 'DOWN']),
+        LinkEventLog.timestamp >= window_start
+    ).count()
+    return recent_events >= FLAPPING_TRANSITION_COUNT, recent_events
+
+
 def _build_link_status(link, reachable, latency_ms, packet_loss, result_timestamp, settings):
     status_record = LinkStatus.query.filter_by(link_id=link.id).first()
     if not status_record:
@@ -129,6 +167,57 @@ def _build_link_status(link, reachable, latency_ms, packet_loss, result_timestam
     previous_status = status_record.mw_status
     previous_timeouts = status_record.consecutive_timeouts or 0
 
+    # If currently flapping, check for stabilisation
+    if previous_status == 'flapping':
+        if reachable:
+            # Count consecutive successful pings while flapping
+            # Use consecutive_timeouts as inverse: 0 means stable
+            # We track stable cycles by checking consecutive_timeouts == 0
+            # for FLAPPING_STABLE_CYCLES pings
+            if previous_timeouts <= 0:
+                # Already had at least one stable ping, count this as second
+                stable_count = abs(previous_timeouts) + 1
+                if stable_count >= FLAPPING_STABLE_CYCLES:
+                    # Link has stabilised — exit flapping mode
+                    new_status = _derive_status(reachable, status_record, settings)
+                    status_record.mw_status = new_status
+                    status_record.consecutive_timeouts = 0
+                    status_record.last_ping_at = result_timestamp
+                    status_record.last_ping_latency_ms = latency_ms
+                    logger.info(f"Link {link.link_id} exited flapping state (stable for {FLAPPING_STABLE_CYCLES} cycles)")
+                    
+                    # Log the recovery event
+                    event_log = LinkEventLog(
+                        link_id=link.id,
+                        event_type='UP',
+                        timestamp=result_timestamp,
+                        details=f"Exited flapping state, now {new_status}"
+                    )
+                    db.session.add(event_log)
+                    
+                    send_event_notification(
+                        'mw_link_recovered',
+                        f'Link {link.link_id} has stabilised and recovered from flapping.',
+                        link_id=link.link_id,
+                        severity='info'
+                    )
+                    return status_record
+                else:
+                    # Track stable count using negative consecutive_timeouts
+                    status_record.consecutive_timeouts = -stable_count
+            else:
+                # First stable ping while flapping
+                status_record.consecutive_timeouts = -1
+        else:
+            # Still unstable, reset stable counter
+            status_record.consecutive_timeouts = 1
+        
+        # Stay in flapping state
+        status_record.last_ping_at = result_timestamp
+        status_record.last_ping_latency_ms = latency_ms
+        return status_record
+
+    # Normal (non-flapping) status processing
     new_status = _derive_status(reachable, status_record, settings)
     status_record.mw_status = new_status
     status_record.last_ping_at = result_timestamp
@@ -146,6 +235,31 @@ def _build_link_status(link, reachable, latency_ms, packet_loss, result_timestam
                 details=f"Status changed from {previous_status} to {new_status}"
             )
             db.session.add(event_log)
+            db.session.flush()
+
+            # Check for flapping after logging the event
+            is_flapping, transition_count = _check_flapping(link, result_timestamp)
+            if is_flapping:
+                status_record.mw_status = 'flapping'
+                status_record.consecutive_timeouts = 0
+                logger.warning(f"Link {link.link_id} entered flapping state ({transition_count} transitions in {FLAPPING_WINDOW_MINUTES} min)")
+                
+                # Log flapping event
+                flapping_event = LinkEventLog(
+                    link_id=link.id,
+                    event_type='FLAPPING',
+                    timestamp=result_timestamp,
+                    details=f"Link is flapping — {transition_count} state changes in {FLAPPING_WINDOW_MINUTES} minutes"
+                )
+                db.session.add(flapping_event)
+                
+                send_event_notification(
+                    'mw_link_down',
+                    f'Link {link.link_id} is flapping — {transition_count} state changes in {FLAPPING_WINDOW_MINUTES} minutes.',
+                    link_id=link.link_id,
+                    severity='critical'
+                )
+                return status_record
 
         if new_status == 'down':
             send_event_notification(
@@ -162,6 +276,7 @@ def _build_link_status(link, reachable, latency_ms, packet_loss, result_timestam
                 severity='info'
             )
 
+    # Consecutive timeouts threshold — uses >= so it fires on exact threshold crossing
     if status_record.consecutive_timeouts >= settings['consecutive_timeout_threshold'] and previous_timeouts < settings['consecutive_timeout_threshold']:
         send_event_notification(
             'consecutive_timeouts',
@@ -201,7 +316,6 @@ def _emit_kpi_update():
     """Emit a real-time WebSocket event with fresh KPI data."""
     try:
         from app.extensions import socketio
-        from datetime import timedelta
 
         total_links = Link.query.count()
         mw_reachable = LinkStatus.query.filter(LinkStatus.mw_status.in_(['up', 'high'])).count()
@@ -266,7 +380,7 @@ def _persist_ping_result(link, reachable, latency_ms, packet_loss, raw_output, t
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            settings = _get_ping_settings()
+            settings = _get_ping_settings(link=link)
             result = PingResult(
                 link_id=link.id,
                 reachable=reachable,
@@ -312,7 +426,7 @@ def ping_single_link(link):
     try:
         # Try to use persistent SSH session if jump server configured
         try:
-            settings = _get_ping_settings()
+            settings = _get_ping_settings(link=link)
             cmd = f"ping -c {settings['count']} -W {settings['timeout']} {link.mw_ip}"
             raw_output = get_session_manager().execute(cmd, timeout=settings['timeout'] + 5)
         except RuntimeError:

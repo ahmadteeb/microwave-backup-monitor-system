@@ -4,12 +4,12 @@ import smtplib
 from datetime import datetime
 from email.message import EmailMessage
 from flask import Blueprint, request, jsonify, session, current_app
-from app.models import db, SmtpConfig, JumpServer, AppSettings, User, ExternalDbConfig
+from app.models import db, SmtpConfig, JumpServer, AppSettings, User, ExternalDbConfig, WebhookConfig
 from urllib.parse import quote_plus
 from app.services.crypto_service import encrypt, decrypt, encrypt_with_key, decrypt_with_key
 from app.services.ssh_service import SSHService
 from app.services.log_service import write_log
-from app.services.external_util_service import invalidate_external_engine
+from app.services.external_util_service import invalidate_external_engine, test_external_connection, get_external_db_status
 from app.permissions import login_required, require_permission
 
 settings_bp = Blueprint('settings', __name__, url_prefix='/api/settings')
@@ -158,7 +158,7 @@ def update_smtp():
     config.updated_by_id = session.get('user_id')
     config.updated_at = datetime.utcnow()
     db.session.commit()
-    write_log('config', 'smtp_updated', session.get('username', 'system'), 'smtp', {'changed': list(changed.keys())})
+    write_log('config', 'smtp_updated', session.get('username', 'system'), 'smtp', {'changes': changed})
     return jsonify({'result': 'smtp updated'}), 200
 
 
@@ -429,6 +429,24 @@ def test_external_db_settings():
         return jsonify({'error': str(exc)}), 500
 
 
+@settings_bp.route('/external-db/status', methods=['GET'])
+@login_required
+@require_permission('config.view')
+def external_db_status():
+    """Return external DB connection status and last sync info (Tier 2.3)."""
+    return jsonify(get_external_db_status()), 200
+
+
+@settings_bp.route('/external-db/test-connection', methods=['POST'])
+@login_required
+@require_permission('config.view')
+def test_external_db_connection():
+    """Test connectivity to the active external DB config (Tier 2.3)."""
+    result = test_external_connection()
+    status_code = 200 if result['success'] else 503
+    return jsonify(result), status_code
+
+
 @settings_bp.route('/app', methods=['GET'])
 @login_required
 @require_permission('config.view')
@@ -444,7 +462,9 @@ def get_app_settings():
         'ping_concurrency': settings.ping_concurrency,
         'consecutive_timeout_alert_threshold': settings.consecutive_timeout_alert_threshold,
         'util_warning_threshold_pct': settings.util_warning_threshold_pct,
-        'util_critical_threshold_pct': settings.util_critical_threshold_pct
+        'util_critical_threshold_pct': settings.util_critical_threshold_pct,
+        'daily_report_hour': settings.daily_report_hour,
+        'daily_report_minute': settings.daily_report_minute,
     }}), 200
 
 
@@ -459,25 +479,120 @@ def update_app_settings():
         db.session.add(settings)
 
     changed = {}
-    for field in ['session_timeout_minutes', 'ping_interval_seconds', 'ping_count', 'ping_timeout_seconds', 'ping_concurrency', 'consecutive_timeout_alert_threshold', 'util_warning_threshold_pct', 'util_critical_threshold_pct']:
+    for field in [
+        'session_timeout_minutes', 'ping_interval_seconds', 'ping_count',
+        'ping_timeout_seconds', 'ping_concurrency', 'consecutive_timeout_alert_threshold',
+        'util_warning_threshold_pct', 'util_critical_threshold_pct',
+        'daily_report_hour', 'daily_report_minute',
+    ]:
         if field in data:
             value = data[field]
-            if getattr(settings, field) != value:
-                changed[field] = [getattr(settings, field), value]
+            old_value = getattr(settings, field)
+            if old_value != value:
+                changed[field] = [old_value, value]
                 setattr(settings, field, value)
 
     settings.updated_by_id = session.get('user_id')
     settings.updated_at = datetime.utcnow()
     db.session.commit()
-    write_log('config', 'app_settings_updated', session.get('username', 'system'), 'app_settings', {'changed': list(changed.keys())})
 
+    # Audit log with before/after values (Tier 2.4)
+    write_log('config', 'settings_updated', session.get('username', 'system'), 'app_settings',
+              {'changes': changed}, ip_address=request.remote_addr)
+
+    # Live-reload scheduler jobs if relevant settings changed (Tier 2.2)
     if 'ping_interval_seconds' in changed:
-        scheduler = getattr(current_app, 'scheduler', None)
-        if scheduler:
-            new_interval = settings.ping_interval_seconds
-            try:
-                scheduler.reschedule_job('ping_cycle', trigger='interval', seconds=new_interval)
-            except Exception:
-                write_log('config', 'scheduler_reschedule_failed', session.get('username', 'system'), 'app_settings', {'interval': new_interval})
+        try:
+            from app.services.scheduler import reload_scheduler_interval
+            reload_scheduler_interval()
+        except Exception:
+            write_log('config', 'scheduler_reschedule_failed', session.get('username', 'system'),
+                      'app_settings', {'field': 'ping_interval_seconds'})
+
+    if 'daily_report_hour' in changed or 'daily_report_minute' in changed:
+        try:
+            from app.services.scheduler import reload_daily_report_time
+            reload_daily_report_time()
+        except Exception:
+            write_log('config', 'scheduler_reschedule_failed', session.get('username', 'system'),
+                      'app_settings', {'field': 'daily_report_time'})
 
     return jsonify({'result': 'app settings updated'}), 200
+
+
+# ─── Webhook / Slack notification channel endpoints (Tier 3.4) ───────────────
+
+@settings_bp.route('/webhooks', methods=['GET'])
+@login_required
+@require_permission('config.edit_smtp')
+def list_webhooks():
+    """List all webhook configurations."""
+    webhooks = WebhookConfig.query.order_by(WebhookConfig.id).all()
+    return jsonify({'webhooks': [
+        {
+            'id': w.id,
+            'label': w.label,
+            'url': w.url,
+            'channel_type': w.channel_type,
+            'active': w.active,
+            'created_at': w.created_at.isoformat() + 'Z'
+        }
+        for w in webhooks
+    ]}), 200
+
+
+@settings_bp.route('/webhooks', methods=['POST'])
+@login_required
+@require_permission('config.edit_smtp')
+def create_webhook():
+    """Create a new webhook configuration."""
+    data = request.get_json() or {}
+    label = (data.get('label') or '').strip()
+    url = (data.get('url') or '').strip()
+    channel_type = data.get('channel_type', 'generic')
+
+    if not label or not url:
+        return jsonify({'error': 'label and url are required'}), 400
+
+    if channel_type not in ('generic', 'slack'):
+        return jsonify({'error': 'channel_type must be "generic" or "slack"'}), 400
+
+    webhook = WebhookConfig(
+        label=label,
+        url=url,
+        channel_type=channel_type,
+        active=bool(data.get('active', True)),
+    )
+    db.session.add(webhook)
+    db.session.commit()
+
+    write_log('config', 'webhook_created', session.get('username', 'system'), label,
+              {'url': url, 'channel_type': channel_type}, ip_address=request.remote_addr)
+
+    return jsonify({
+        'id': webhook.id,
+        'label': webhook.label,
+        'url': webhook.url,
+        'channel_type': webhook.channel_type,
+        'active': webhook.active,
+        'created_at': webhook.created_at.isoformat() + 'Z'
+    }), 201
+
+
+@settings_bp.route('/webhooks/<int:id>', methods=['DELETE'])
+@login_required
+@require_permission('config.edit_smtp')
+def delete_webhook(id):
+    """Delete a webhook configuration."""
+    webhook = db.session.get(WebhookConfig, id)
+    if not webhook:
+        return jsonify({'error': 'Webhook not found'}), 404
+
+    label = webhook.label
+    db.session.delete(webhook)
+    db.session.commit()
+
+    write_log('config', 'webhook_deleted', session.get('username', 'system'), label,
+              {}, ip_address=request.remote_addr)
+
+    return jsonify({'result': 'webhook deleted'}), 200

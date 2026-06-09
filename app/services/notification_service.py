@@ -4,7 +4,7 @@ from datetime import datetime
 from email.message import EmailMessage
 import logging
 from flask import render_template
-from app.models import db, User, NotificationSubscription, InAppNotification, SmtpConfig, Link
+from app.models import db, User, NotificationSubscription, InAppNotification, SmtpConfig, Link, LinkStatus, WebhookConfig
 from app.services.crypto_service import decrypt
 from app.services.log_service import write_log
 
@@ -19,6 +19,87 @@ EVENT_SEVERITY = {
     'consecutive_timeouts': 'critical',
     'ping_service_error': 'error'
 }
+
+# Notification cooldown in seconds per event type (Tier 1.2)
+NOTIFICATION_COOLDOWN_SECONDS = {
+    'mw_link_down': 1800,          # 30 min
+    'consecutive_timeouts': 3600,  # 1 hour
+    'leg_util_high': 3600,
+    'leg_util_near_cap': 1800,
+    'mw_util_high': 3600,
+    'mw_link_recovered': 0,        # always fire recoveries
+    'ping_service_error': 3600,
+}
+
+# Severity-aware email subject templates (Tier 1.2)
+SUBJECT_TEMPLATES = {
+    'mw_link_down':        '\U0001f534 [CRITICAL] Link Down \u2014 {leg_name}',
+    'mw_link_recovered':   '\U0001f7e2 [RESOLVED] Link Recovered \u2014 {leg_name}',
+    'leg_util_high':       '\U0001f7e1 [WARNING] High Leg Utilization \u2014 {leg_name}',
+    'mw_util_high':        '\U0001f7e1 [WARNING] High MW Utilization \u2014 {leg_name}',
+    'leg_util_near_cap':   '\U0001f534 [CRITICAL] Near Capacity \u2014 {leg_name}',
+    'consecutive_timeouts':'\U0001f534 [CRITICAL] Consecutive Timeouts \u2014 {leg_name}',
+    'ping_service_error':  '\u26a0\ufe0f [ERROR] Ping Service Error',
+}
+
+# Maps event_key to the LinkStatus timestamp column used for cooldown tracking
+_COOLDOWN_COLUMN_MAP = {
+    'mw_link_down': 'last_mw_down_notified_at',
+    'consecutive_timeouts': 'last_mw_down_notified_at',
+    'leg_util_high': 'last_leg_high_notified_at',
+    'mw_util_high': 'last_mw_high_notified_at',
+    'leg_util_near_cap': 'last_leg_near_cap_notified_at',
+}
+
+
+def _check_and_update_cooldown(event_key, link_id):
+    """
+    Check whether enough time has elapsed since the last notification for this
+    event on this link. If so, update the timestamp and return True (allow).
+    Returns False if the notification should be suppressed (still in cooldown).
+    
+    Always returns True for link-less events or events without a cooldown column.
+    """
+    if link_id is None:
+        return True
+
+    cooldown = NOTIFICATION_COOLDOWN_SECONDS.get(event_key, 0)
+    if cooldown == 0:
+        return True
+
+    column_name = _COOLDOWN_COLUMN_MAP.get(event_key)
+    if column_name is None:
+        return True
+
+    try:
+        link = Link.query.filter_by(link_id=link_id).first()
+        if not link:
+            return True
+
+        status_record = LinkStatus.query.filter_by(link_id=link.id).first()
+        if not status_record:
+            return True
+
+        last_notified = getattr(status_record, column_name, None)
+        now = datetime.utcnow()
+
+        if last_notified is not None:
+            elapsed = (now - last_notified).total_seconds()
+            if elapsed < cooldown:
+                logger.warning(
+                    f"Notification suppressed by cooldown: event={event_key}, "
+                    f"link={link_id}, elapsed={elapsed:.0f}s, cooldown={cooldown}s"
+                )
+                return False
+
+        # Update the cooldown timestamp
+        setattr(status_record, column_name, now)
+        db.session.commit()
+        return True
+    except Exception as exc:
+        logger.error(f"Cooldown check failed for {event_key}/{link_id}: {exc}")
+        db.session.rollback()
+        return True  # fail-open: allow notification if cooldown check errors
 
 
 def _send_email_notification(user_email, subject, body, smtp_config, html_body=None):
@@ -69,6 +150,76 @@ def _deliver_emails(payloads_or_emails, subject, body, smtp_config, html_body=No
                 _send_email_notification(item, subject, body, smtp_config, html_body=html_body)
 
 
+def _deliver_webhooks(event_key, message, link, severity):
+    """
+    Deliver webhook notifications to all active WebhookConfig endpoints (Tier 3.4).
+    Runs in a daemon thread. Never raises.
+    """
+    try:
+        webhooks = WebhookConfig.query.filter_by(active=True).all()
+    except Exception as exc:
+        logger.error(f"Failed to query webhooks: {exc}")
+        return
+
+    if not webhooks:
+        return
+
+    leg_name = link.leg_name if link else event_key
+    link_id_str = link.link_id if link else None
+    timestamp_str = datetime.utcnow().isoformat() + 'Z'
+
+    for webhook in webhooks:
+        try:
+            if webhook.channel_type == 'slack':
+                # Slack-compatible payload
+                color_map = {'critical': 'danger', 'error': 'danger', 'warning': 'warning', 'info': 'good'}
+                color = color_map.get(severity, '#439FE0')
+                fields = [
+                    {'title': 'Event', 'value': event_key, 'short': True},
+                    {'title': 'Severity', 'value': severity.upper(), 'short': True},
+                ]
+                if link:
+                    fields.extend([
+                        {'title': 'Link ID', 'value': link.link_id, 'short': True},
+                        {'title': 'Leg', 'value': link.leg_name, 'short': True},
+                        {'title': 'MW IP', 'value': link.mw_ip, 'short': True},
+                    ])
+                emoji_map = {'critical': '\U0001f534', 'error': '\u26a0\ufe0f', 'warning': '\U0001f7e1', 'info': '\U0001f7e2'}
+                emoji = emoji_map.get(severity, '\U0001f535')
+                title = event_key.replace('_', ' ').title()
+                payload = {
+                    'text': f"{emoji} *{title}* \u2014 {leg_name}",
+                    'attachments': [{
+                        'color': color,
+                        'text': message,
+                        'fields': fields,
+                        'ts': timestamp_str
+                    }]
+                }
+            else:
+                # Generic webhook payload
+                payload = {
+                    'event': event_key,
+                    'severity': severity,
+                    'message': message,
+                    'link_id': link_id_str,
+                    'leg_name': leg_name,
+                    'timestamp': timestamp_str
+                }
+
+            def _post_webhook(url, data):
+                try:
+                    import requests
+                    requests.post(url, json=data, timeout=5)
+                except Exception as post_exc:
+                    logger.error(f"Webhook delivery failed to {url}: {post_exc}")
+
+            thread = threading.Thread(target=_post_webhook, args=(webhook.url, payload), daemon=True)
+            thread.start()
+        except Exception as exc:
+            logger.error(f"Failed to prepare webhook {webhook.label}: {exc}")
+
+
 def _emit_notification_ws(user_id, notification_data):
     """Emit a real-time WebSocket event for a new notification."""
     try:
@@ -96,10 +247,26 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
         return 0
 
     users = [u for u in users if u.id in user_ids]
+
+    # Always emit WebSocket notifications (not gated by cooldown)
+    now = datetime.utcnow()
+    for user in users:
+        _emit_notification_ws(user.id, {
+            'event_key': event_key,
+            'severity': severity,
+            'link_id': link_id,
+            'message': message,
+            'is_read': False,
+            'created_at': now.isoformat() + 'Z'
+        })
+
+    # Check cooldown — if suppressed, skip email and DB notifications
+    if not _check_and_update_cooldown(event_key, link_id):
+        return 0
+
     notifications = []
     user_emails = []
 
-    now = datetime.utcnow()
     for user in users:
         notifications.append(InAppNotification(
             user_id=user.id,
@@ -115,40 +282,17 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
         db.session.bulk_save_objects(notifications)
         db.session.commit()
 
-        # Emit WebSocket events for each user
-        for user in users:
-            _emit_notification_ws(user.id, {
-                'event_key': event_key,
-                'severity': severity,
-                'link_id': link_id,
-                'message': message,
-                'is_read': False,
-                'created_at': now.isoformat() + 'Z'
-            })
-
         if user_emails:
             link = None
             if link_id:
                 link = Link.query.filter_by(link_id=link_id).first()
 
-            emoji_map = {
-                'critical': '🔴',
-                'error': '⚠️',
-                'warning': '🟡',
-                'info': '🔵'
-            }
-            if 'recovered' in event_key.lower() or 'up' in event_key.lower():
-                emoji_map['info'] = '🟢'
-
-            subject_emoji = emoji_map.get(severity, '🔵')
-            sev_str = severity.upper()
-            title_str = event_key.replace('_', ' ').title()
-
-            if link:
-                leg_name = getattr(link, 'leg_name', None) or link.link_id
-                subject = f"{subject_emoji} [{sev_str}] {title_str} — {leg_name}"
-            else:
-                subject = f"{subject_emoji} [{sev_str}] {title_str}"
+            # Build severity-aware subject line from templates
+            leg_name = link.leg_name if link else event_key
+            subject = SUBJECT_TEMPLATES.get(
+                event_key,
+                '[MW Monitor] {leg_name}'
+            ).format(leg_name=leg_name, event_key=event_key)
 
             body = message
 
@@ -200,6 +344,10 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
             if smtp_config:
                 thread = threading.Thread(target=_deliver_emails, args=(email_payloads, subject, body, smtp_config, None), daemon=True)
                 thread.start()
+
+            # Deliver webhooks (Tier 3.4)
+            _deliver_webhooks(event_key, message, link, severity)
+
         return len(notifications)
     except Exception as exc:
         db.session.rollback()

@@ -15,9 +15,7 @@ def create_test_links():
 
     # Sample data for variety
     legs = ['NORTH', 'SOUTH', 'EAST', 'WEST', 'CENTRAL']
-    sites_a = ['ALPHA_BASE', 'BETA_STATION', 'GAMMA_HUB', 'DELTA_REPEATER', 'EPSILON_NODE']
-    sites_b = ['ZETA_ENDPOINT', 'ETA_TERMINAL', 'THETA_GATEWAY', 'IOTA_SWITCH', 'KAPPA_ROUTER']
-    equipment_types = ['MW_Radio_Pro', 'Fiber_Optic_Transceiver', 'Satellite_Dish', 'Wireless_Bridge', 'Network_Switch']
+    cities = ['City Center', 'North Suburb', 'South Suburb', 'East District', 'West District', 'Industrial Park', 'Business Bay']
 
     app = create_app()
 
@@ -31,13 +29,11 @@ def create_test_links():
         created_count = 0
 
         for i in range(3, 13):  # 172.20.0.3 to 172.20.0.12
-            ip = f"172.20.0.{i}"
             link_id = f"TEST_LINK_{i:02d}"
             leg_name = legs[(i-2) % len(legs)]
-            site_a = sites_a[(i-2) % len(sites_a)]
-            site_b = sites_b[(i-2) % len(sites_b)]
-            equipment_a = equipment_types[(i-2) % len(equipment_types)]
-            equipment_b = equipment_types[(i-1) % len(equipment_types)]
+            site_a = f"{cities[(i-1) % len(cities)]} Tower"
+            site_b = f"{cities[i % len(cities)]} Node"
+            link_type = 'microwave' if i % 2 == 0 else 'fiber'
 
             # Check if link already exists
             existing = Link.query.filter_by(link_id=link_id).first()
@@ -51,11 +47,9 @@ def create_test_links():
                 leg_name=leg_name,
                 site_a=site_a,
                 site_b=site_b,
-                mw_ip=ip,
-                equipment_a=equipment_a,
-                equipment_b=equipment_b,
-                link_type='microwave',
-                notes=f'Test link {i} created on {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")}',
+                mw_ip=f"192.168.100.{i}",
+                link_type=link_type,
+                notes=f"Simulated backup link {i} for demonstration purposes. Connecting {site_a} to {site_b}.",
                 is_active=True
             )
 

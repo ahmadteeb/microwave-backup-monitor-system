@@ -84,7 +84,8 @@ def create_user():
     db.session.flush()
     _seed_subscriptions(user.id)
     db.session.commit()
-    write_log('users', 'user_created', session.get('username', 'system'), user.username, {'role': user.role})
+    write_log('users', 'user_created', session.get('username', 'system'), user.username,
+              {'role': user.role}, ip_address=request.remote_addr)
     return jsonify({'id': user.id}), 201
 
 
@@ -120,18 +121,37 @@ def update_user(id):
         from app.models import Role
         if not Role.query.filter_by(name=data['role']).first():
             return jsonify({'error': 'Invalid role provided'}), 400
-        updates['role'] = [user.role, data['role']]
-        user.role = data['role']
+        old_role = user.role
+        new_role = data['role']
+        updates['role'] = [old_role, new_role]
+        user.role = new_role
+
+        # Granular audit log: role change (Tier 2.4)
+        write_log('users', 'user_role_changed', session.get('username', 'system'), user.username,
+                  {'from': old_role, 'to': new_role}, ip_address=request.remote_addr)
+
     if 'is_active' in data and data['is_active'] != user.is_active:
-        updates['is_active'] = [user.is_active, data['is_active']]
-        user.is_active = bool(data['is_active'])
+        old_active = user.is_active
+        new_active = bool(data['is_active'])
+        updates['is_active'] = [old_active, new_active]
+        user.is_active = new_active
+
+        # Granular audit log: activation/deactivation (Tier 2.4)
+        if new_active:
+            write_log('users', 'user_activated', session.get('username', 'system'), user.username,
+                      {}, ip_address=request.remote_addr)
+        else:
+            write_log('users', 'user_deactivated', session.get('username', 'system'), user.username,
+                      {}, ip_address=request.remote_addr)
+
     if 'force_password_change' in data and data['force_password_change'] != user.force_password_change:
         updates['force_password_change'] = [user.force_password_change, data['force_password_change']]
         user.force_password_change = bool(data['force_password_change'])
 
     db.session.commit()
     if updates:
-        write_log('users', 'user_edited', session.get('username', 'system'), user.username, {'changed': updates})
+        write_log('users', 'user_edited', session.get('username', 'system'), user.username,
+                  {'changed': updates}, ip_address=request.remote_addr)
     return jsonify({'result': 'updated'}), 200
 
 
@@ -144,9 +164,14 @@ def delete_user(id):
         return jsonify({'error': 'User not found'}), 404
     if session.get('user_id') == user.id:
         return jsonify({'error': 'Cannot delete own account'}), 400
+    username = user.username
+    role = user.role
     db.session.delete(user)
     db.session.commit()
-    write_log('users', 'user_deleted', session.get('username', 'system'), user.username)
+
+    # Audit log: user deleted (Tier 2.4)
+    write_log('users', 'user_deleted', session.get('username', 'system'), username,
+              {'role': role}, ip_address=request.remote_addr)
     return jsonify({'result': 'deleted'}), 200
 
 

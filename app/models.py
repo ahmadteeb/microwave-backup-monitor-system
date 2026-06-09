@@ -8,14 +8,17 @@ class Link(db.Model):
     site_a = db.Column(db.String(100), nullable=True)
     site_b = db.Column(db.String(100), nullable=True)
     mw_ip = db.Column(db.String(45), nullable=False)
-    equipment_a = db.Column(db.String(100), nullable=True)
-    equipment_b = db.Column(db.String(100), nullable=True)
     link_type = db.Column(db.String(50), nullable=True, default='microwave')
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, server_default='1', default=True)
+
+    # Per-link utilization alert thresholds (Tier 3.2)
+    # When set, these override the global AppSettings thresholds for this link.
+    util_warning_threshold_pct = db.Column(db.Float, nullable=True, default=None)
+    util_critical_threshold_pct = db.Column(db.Float, nullable=True, default=None)
 
     ping_results = db.relationship('PingResult', backref='link', lazy='dynamic', cascade='all, delete-orphan')
     status = db.relationship('LinkStatus', backref='link', uselist=False, cascade='all, delete-orphan')
@@ -175,13 +178,16 @@ class AppSettings(db.Model):
     consecutive_timeout_alert_threshold = db.Column(db.Integer, nullable=False, default=5, server_default='5')
     util_warning_threshold_pct = db.Column(db.Float, nullable=False, default=70.0, server_default='70.0')
     util_critical_threshold_pct = db.Column(db.Float, nullable=False, default=90.0, server_default='90.0')
+    # Daily report schedule (Tier 2.2)
+    daily_report_hour = db.Column(db.Integer, nullable=False, default=8, server_default='8')
+    daily_report_minute = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
 
 class LinkStatus(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     link_id = db.Column(db.Integer, db.ForeignKey('link.id'), nullable=False, unique=True)
-    mw_status = db.Column(db.Enum('up', 'down', 'high', 'checking', 'unknown', name='link_status_enum'), nullable=False, default='unknown', server_default='unknown')
+    mw_status = db.Column(db.Enum('up', 'down', 'high', 'checking', 'unknown', 'flapping', name='link_status_enum'), nullable=False, default='unknown', server_default='unknown')
     last_ping_at = db.Column(db.DateTime, nullable=True)
     last_ping_latency_ms = db.Column(db.Float, nullable=True)
     consecutive_timeouts = db.Column(db.Integer, nullable=False, default=0, server_default='0')
@@ -200,6 +206,15 @@ class LinkStatus(db.Model):
     last_leg_high_notified_at = db.Column(db.DateTime, nullable=True)
     last_mw_high_notified_at = db.Column(db.DateTime, nullable=True)
     last_leg_near_cap_notified_at = db.Column(db.DateTime, nullable=True)
+
+class WebhookConfig(db.Model):
+    """Webhook/Slack notification channel configuration (Tier 3.4)."""
+    id = db.Column(db.Integer, primary_key=True)
+    label = db.Column(db.String(100), nullable=False)
+    url = db.Column(db.String(500), nullable=False)
+    channel_type = db.Column(db.Enum('generic', 'slack', name='webhook_channel_type'), nullable=False, default='generic', server_default='generic')
+    active = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
 # Indexes for performance on history queries
 

@@ -1,13 +1,17 @@
 import csv
 import io
 import re
+import logging
 from datetime import datetime
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, request, jsonify, Response, session
 from app.models import db, Link, PingResult, AppSettings, LinkStatus
 from app.services.ping_service import ping_single_link
 from app.services.notification_service import send_event_notification
 from app.services.external_util_service import refresh_external_utilization_for_single_link, lookup_link_info, lookup_leg_info
+from app.services.log_service import write_log
 from app.permissions import login_required, require_permission
+
+logger = logging.getLogger(__name__)
 
 links_bp = Blueprint('links', __name__, url_prefix='/api/links')
 
@@ -76,8 +80,6 @@ def serialize_link(link):
         "site_a": link.site_a,
         "site_b": link.site_b,
         "mw_ip": link.mw_ip,
-        "equipment_a": link.equipment_a,
-        "equipment_b": link.equipment_b,
         "link_type": link.link_type,
         "notes": link.notes,
         "status": status,
@@ -86,7 +88,10 @@ def serialize_link(link):
         "leg_capacity_pct": leg_capacity_pct,
         "latency_ms": latency,
         "latest_ping": ping_data,
-        "latest_metric": metric_data
+        "latest_metric": metric_data,
+        # Per-link utilization thresholds (Tier 3.2)
+        "util_warning_threshold_pct": link.util_warning_threshold_pct,
+        "util_critical_threshold_pct": link.util_critical_threshold_pct,
     }
 
 @links_bp.route('', methods=['GET'])
@@ -154,7 +159,7 @@ def export_links():
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Link ID", "Leg", "Site A", "Site B", "LEG Util %", "LEG Bitrate Mbps", "MW IP", "Equipment A", "Equipment B", "Link Type", "Status", "Latency ms", "Direct LEG Util %", "MW Util %", "MW/LEG %", "Link Cap Mbps", "Last Ping"])
+    writer.writerow(["Link ID", "Leg", "Site A", "Site B", "LEG Util %", "LEG Bitrate Mbps", "MW IP", "Link Type", "Status", "Latency ms", "Direct LEG Util %", "MW Util %", "MW/LEG %", "Link Cap Mbps", "Last Ping"])
 
     for link in exported:
         writer.writerow([
@@ -165,8 +170,6 @@ def export_links():
             link["leg_util_pct"] if link["leg_util_pct"] is not None else '',
             link["leg_bitrate"] if link["leg_bitrate"] is not None else '',
             link["mw_ip"],
-            link["equipment_a"],
-            link["equipment_b"],
             link["link_type"],
             link["status"],
             link["latency_ms"] if link["latency_ms"] is not None else '',
@@ -202,22 +205,26 @@ def create_link():
         site_a=data.get('site_a'),
         site_b=data.get('site_b'),
         mw_ip=data['mw_ip'],
-        equipment_a=data.get('equipment_a'),
-        equipment_b=data.get('equipment_b'),
         link_type=data.get('link_type', 'microwave'),
         notes=data.get('notes'),
-        is_active=True
+        is_active=True,
+        # Per-link thresholds (Tier 3.2)
+        util_warning_threshold_pct=data.get('util_warning_threshold_pct'),
+        util_critical_threshold_pct=data.get('util_critical_threshold_pct'),
     )
     db.session.add(link)
     db.session.commit()
+
+    # Audit log: link created (Tier 2.4)
+    write_log('links', 'link_created', session.get('username', 'system'), link.link_id,
+              {'leg_name': link.leg_name, 'mw_ip': link.mw_ip}, ip_address=request.remote_addr)
     
     # Fetch initial data from external DB
     try:
         refresh_external_utilization_for_single_link(link)
         db.session.commit()
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Failed to fetch initial external status for {link.link_id}: {e}")
+        logger.warning(f"Failed to fetch initial external status for {link.link_id}: {e}")
 
     return jsonify(serialize_link(link)), 201
 
@@ -364,10 +371,14 @@ def update_link(id):
     if 'leg_name' in data: link.leg_name = data['leg_name']
     if 'site_a' in data: link.site_a = data['site_a']
     if 'site_b' in data: link.site_b = data['site_b']
-    if 'equipment_a' in data: link.equipment_a = data['equipment_a']
-    if 'equipment_b' in data: link.equipment_b = data['equipment_b']
     if 'link_type' in data: link.link_type = data['link_type']
     if 'notes' in data: link.notes = data['notes']
+
+    # Per-link thresholds (Tier 3.2)
+    if 'util_warning_threshold_pct' in data:
+        link.util_warning_threshold_pct = data['util_warning_threshold_pct']
+    if 'util_critical_threshold_pct' in data:
+        link.util_critical_threshold_pct = data['util_critical_threshold_pct']
 
     db.session.commit()
 
@@ -376,8 +387,7 @@ def update_link(id):
         refresh_external_utilization_for_single_link(link)
         db.session.commit()
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Failed to refresh external status for {link.link_id}: {e}")
+        logger.warning(f"Failed to refresh external status for {link.link_id}: {e}")
 
     return jsonify(serialize_link(link)), 200
 
@@ -389,8 +399,15 @@ def delete_link(id):
     if not link:
         return jsonify({'error': 'Link not found'}), 404
     link_id = link.link_id
+    leg_name = link.leg_name
+    mw_ip = link.mw_ip
     db.session.delete(link)
     db.session.commit()
+
+    # Audit log: link deleted (Tier 2.4)
+    write_log('links', 'link_deleted', session.get('username', 'system'), link_id,
+              {'leg_name': leg_name, 'mw_ip': mw_ip}, ip_address=request.remote_addr)
+
     return jsonify({"message": "Link deleted", "link_id": link_id}), 200
 
 @links_bp.route('/<int:id>/ping', methods=['POST'])

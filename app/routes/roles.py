@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, session
 from app.models import db, Role, RolePermission, User
 from app.services.log_service import write_log
 from app.permissions import login_required, require_permission, ROLE_DEFAULTS
@@ -58,7 +58,9 @@ def create_role():
         db.session.add(rp)
     db.session.commit()
 
-    write_log('auth', 'role_created', 'system', name, {'description': description})
+    # Audit log: role created (Tier 2.4)
+    write_log('roles', 'role_created', session.get('username', 'system'), name,
+              {'description': description}, ip_address=request.remote_addr)
     return jsonify({'result': 'role created', 'id': role.id}), 201
 
 
@@ -69,11 +71,19 @@ def update_role(name):
     role = Role.query.filter_by(name=name).first_or_404()
     data = request.get_json() or {}
 
+    changes = {}
     if 'description' in data:
-        role.description = data['description'].strip()
+        old_desc = role.description
+        new_desc = data['description'].strip()
+        if old_desc != new_desc:
+            changes['description'] = [old_desc, new_desc]
+            role.description = new_desc
 
     db.session.commit()
-    write_log('auth', 'role_updated', 'system', name)
+
+    # Audit log: role updated (Tier 2.4)
+    write_log('roles', 'role_updated', session.get('username', 'system'), name,
+              {'changes': changes}, ip_address=request.remote_addr)
     return jsonify({'result': 'role updated'}), 200
 
 
@@ -92,7 +102,10 @@ def delete_role(name):
 
     db.session.delete(role)
     db.session.commit()
-    write_log('auth', 'role_deleted', 'system', name)
+
+    # Audit log: role deleted (Tier 2.4)
+    write_log('roles', 'role_deleted', session.get('username', 'system'), name,
+              {'description': role.description}, ip_address=request.remote_addr)
     return jsonify({'result': 'role deleted'}), 200
 
 
@@ -126,17 +139,24 @@ def update_role_permissions(name):
         return jsonify({'error': 'Invalid payload'}), 400
 
     all_keys = _get_all_permission_keys()
-    
+
+    changes = {}
     for key, value in overrides.items():
         if key not in all_keys:
             continue
         is_granted = bool(value)
         rp = RolePermission.query.filter_by(role_name=name, permission_key=key).first()
         if rp:
+            if rp.is_granted != is_granted:
+                changes[key] = [rp.is_granted, is_granted]
             rp.is_granted = is_granted
         else:
             db.session.add(RolePermission(role_name=name, permission_key=key, is_granted=is_granted))
+            changes[key] = [None, is_granted]
             
     db.session.commit()
-    write_log('auth', 'role_permissions_updated', 'system', name)
+
+    # Audit log: permissions updated (Tier 2.4)
+    write_log('roles', 'role_permissions_updated', session.get('username', 'system'), name,
+              {'changes': changes}, ip_address=request.remote_addr)
     return jsonify({'result': 'permissions updated'}), 200

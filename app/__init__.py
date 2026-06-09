@@ -3,8 +3,11 @@ from datetime import datetime, timedelta
 from flask import Flask, session, redirect, jsonify, request, render_template, url_for
 
 from app.config import Config
-from app.extensions import db, bcrypt, socketio
+from app.extensions import db, bcrypt, socketio, limiter
 from app.models import SetupState, AppSettings, User
+
+# Module-level app start time for health endpoint
+APP_START_TIME = datetime.utcnow()
 
 
 def create_app(config_class=Config):
@@ -19,6 +22,7 @@ def create_app(config_class=Config):
     db.init_app(app)
     bcrypt.init_app(app)
     socketio.init_app(app, cors_allowed_origins="*", async_mode='eventlet')
+    limiter.init_app(app)
 
     global APP_START_TIME
     APP_START_TIME = datetime.utcnow()
@@ -94,6 +98,14 @@ def create_app(config_class=Config):
     from app.routes.pinglog import pinglog_bp
     app.register_blueprint(pinglog_bp)
 
+    from app.routes.health import health_bp
+    app.register_blueprint(health_bp)
+
+    # Configure rate limit exceeded handler to return JSON
+    @app.errorhandler(429)
+    def ratelimit_handler(e):
+        return jsonify({'error': 'Too many requests. Please try again later.'}), 429
+
     # SocketIO event handlers
     @socketio.on('connect')
     def handle_connect():
@@ -138,13 +150,15 @@ def create_app(config_class=Config):
                     return jsonify({'error': 'Setup already completed'}), 403
                 return redirect('/login')
 
-            # Allow public access to login and static resources
+            # Allow public access to login, static resources, and health endpoints
             public_paths = (
                 '/login',
                 '/static/',
                 '/favicon.ico',
                 '/api/auth/login',
-                '/socket.io/'
+                '/socket.io/',
+                '/health',
+                '/ready',
             )
             if any(path.startswith(prefix) for prefix in public_paths):
                 return

@@ -52,8 +52,27 @@ class Config:
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
     FLASK_ENV = os.environ.get('FLASK_ENV', 'production')
 
+    # Security: fail-fast if production completed setup but is still using the default key.
+    # On first boot (before setup), no secrets.json exists yet, so the default key is
+    # expected — the app must start to serve the setup page that generates the real key.
+    _secrets_file_found = any(
+        os.path.exists(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', *p)))
+        for p in [('data', 'secrets', 'secrets.json'), ('secrets', 'secrets.json')]
+    )
+    if FLASK_ENV == 'production' and SECRET_KEY == 'change-this-to-a-random-secret-key' and _secrets_file_found:
+        raise RuntimeError(
+            "SECRET_KEY must be set to a strong random value in production. "
+            "Set the SECRET_KEY environment variable."
+        )
+
     SQLALCHEMY_DATABASE_URI = _db_uri
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # Session cookie hardening
+    SESSION_COOKIE_NAME = 'mw_session'
     SESSION_COOKIE_SAMESITE = 'Strict'
     SESSION_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SECURE = False  # set True when deployed behind HTTPS
+    SESSION_COOKIE_SECURE = (FLASK_ENV == 'production')
+
+    # Flask-Limiter
+    RATELIMIT_HEADERS_ENABLED = True

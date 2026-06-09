@@ -120,6 +120,68 @@ def daily_report_job():
             logger.error(f'Error sending daily report: {exc}')
 
 
+def reload_scheduler_interval():
+    """
+    Live-reload the ping cycle interval from AppSettings (Tier 2.2).
+    
+    Reschedules the APScheduler job without restarting the scheduler.
+    Called from the settings route after saving AppSettings.
+    """
+    global _scheduler_instance, _app_instance
+    if not _scheduler_instance or not _scheduler_instance.running:
+        logger.warning("Cannot reload scheduler interval: scheduler not running")
+        return
+
+    try:
+        if _app_instance:
+            with _app_instance.app_context():
+                settings = db.session.get(AppSettings, 1)
+                new_interval = settings.ping_interval_seconds if settings else 60
+        else:
+            new_interval = 60
+
+        _scheduler_instance.reschedule_job(
+            'ping_cycle',
+            trigger='interval',
+            seconds=new_interval
+        )
+        logger.info(f"Ping cycle interval rescheduled to {new_interval}s")
+    except Exception as exc:
+        logger.error(f"Failed to reschedule ping cycle: {exc}")
+
+
+def reload_daily_report_time():
+    """
+    Live-reload the daily report schedule from AppSettings (Tier 2.2).
+    
+    Reschedules the daily_report cron job without restarting the scheduler.
+    Called from the settings route after saving AppSettings.
+    """
+    global _scheduler_instance, _app_instance
+    if not _scheduler_instance or not _scheduler_instance.running:
+        logger.warning("Cannot reload daily report time: scheduler not running")
+        return
+
+    try:
+        if _app_instance:
+            with _app_instance.app_context():
+                settings = db.session.get(AppSettings, 1)
+                hour = settings.daily_report_hour if settings else 8
+                minute = settings.daily_report_minute if settings else 0
+        else:
+            hour, minute = 8, 0
+
+        _scheduler_instance.reschedule_job(
+            'daily_report',
+            trigger='cron',
+            hour=hour,
+            minute=minute
+        )
+        logger.info(f"Daily report rescheduled to {hour:02d}:{minute:02d}")
+    except Exception as exc:
+        logger.error(f"Failed to reschedule daily report: {exc}")
+
+
 def init_scheduler(app):
     global _scheduler_instance, _app_instance
     
@@ -136,6 +198,8 @@ def init_scheduler(app):
     with app.app_context():
         settings = db.session.get(AppSettings, 1)
         interval = settings.ping_interval_seconds if settings else app.config.get('PING_INTERVAL_SECONDS', 60)
+        report_hour = settings.daily_report_hour if settings else 8
+        report_minute = settings.daily_report_minute if settings else 0
     
     scheduler.add_job(
         func=ping_job,
@@ -162,8 +226,8 @@ def init_scheduler(app):
     scheduler.add_job(
         func=daily_report_job,
         trigger='cron',
-        hour=8,
-        minute=0,
+        hour=report_hour,
+        minute=report_minute,
         id='daily_report',
         max_instances=1,
         misfire_grace_time=3600,
@@ -173,5 +237,5 @@ def init_scheduler(app):
 
     scheduler.start()
     _scheduler_instance = scheduler
-    logger.info(f"Scheduler started with {interval}s interval")
+    logger.info(f"Scheduler started with {interval}s ping interval, daily report at {report_hour:02d}:{report_minute:02d}")
     return scheduler
