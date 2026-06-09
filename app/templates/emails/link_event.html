@@ -3,76 +3,118 @@
 <head>
 <meta charset="utf-8">
 <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
-    .header { background-color: #f8f9fa; padding: 15px; border-bottom: 2px solid #007bff; border-radius: 5px 5px 0 0; text-align: center; }
-    .header h2 { margin: 0; color: #007bff; }
-    .content { padding: 20px 0; }
-    .event-type { display: inline-block; padding: 5px 10px; border-radius: 3px; font-weight: bold; font-size: 14px; margin-bottom: 15px; }
-    .event-up { background-color: #d4edda; color: #155724; }
-    .event-down { background-color: #f8d7da; color: #721c24; }
-    .event-error { background-color: #fff3cd; color: #856404; }
-    .event-info { background-color: #cce5ff; color: #004085; }
-    .details-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    .details-table th, .details-table td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
-    .details-table th { width: 30%; color: #666; }
-    .footer { font-size: 12px; color: #999; text-align: center; margin-top: 30px; padding-top: 15px; border-top: 1px solid #eee; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333333; margin: 0; padding: 0; background-color: #f4f7f6; }
+    .wrapper { padding: 20px; }
+    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .header { background-color: #1a202c; padding: 20px; text-align: center; }
+    .header h2 { margin: 0; color: #ffffff; font-size: 20px; font-weight: 600; letter-spacing: 0.5px; }
+    .content { padding: 30px; }
+    .greeting { font-size: 16px; margin-bottom: 20px; color: #1a202c; }
+    .event-badge { display: inline-block; padding: 6px 12px; border-radius: 4px; font-weight: 700; font-size: 13px; margin-bottom: 20px; letter-spacing: 0.5px; }
+    .message-box { background-color: #f8fafc; border-left: 4px solid #cbd5e1; padding: 15px; margin-bottom: 25px; border-radius: 0 4px 4px 0; color: #334155; }
+    .section-title { font-size: 14px; text-transform: uppercase; color: #64748b; font-weight: 700; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; }
+    .details-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }
+    .details-table th, .details-table td { padding: 12px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; }
+    .details-table th { width: 35%; color: #64748b; font-weight: 600; }
+    .details-table td { color: #1e293b; font-weight: 500; }
+    .footer { background-color: #f8fafc; padding: 20px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; }
 </style>
 </head>
-<body>
-<div class="container">
-    <div class="header">
-        <h2>MW Link Monitor Notification</h2>
-    </div>
-    
-    <div class="content">
-        <p>Hello,</p>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333333; margin: 0; padding: 0; background-color: #f4f7f6;">
+
+{% set color = '#3b82f6' %}
+{% set bg_color = '#eff6ff' %}
+{% set badge_text = 'EVENT: ' ~ event_type %}
+
+{% if event_type == 'DOWN' %}
+    {% set color = '#dc2626' %}
+    {% set bg_color = '#fef2f2' %}
+    {% set badge_text = 'ALERT: LINK DOWN' %}
+{% elif event_type == 'RECOVERED' or event_type == 'UP' %}
+    {% set color = '#16a34a' %}
+    {% set bg_color = '#f0fdf4' %}
+    {% set badge_text = 'RESOLVED: LINK RECOVERED' %}
+{% elif event_type == 'WARNING' or event_type == 'HIGH' or event_type == 'NEAR_CAP' %}
+    {% set color = '#ea580c' %}
+    {% set bg_color = '#fff7ed' %}
+    {% set badge_text = 'WARNING: ' ~ event_type %}
+{% elif event_type == 'ERROR' %}
+    {% set color = '#4b5563' %}
+    {% set bg_color = '#f3f4f6' %}
+    {% set badge_text = 'SYSTEM ERROR' %}
+{% endif %}
+
+<div class="wrapper" style="padding: 20px; background-color: #f4f7f6;">
+    <div class="container" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border-top: 5px solid {{ color }}; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+        <div class="header" style="background-color: #1a202c; padding: 20px; text-align: center;">
+            <h2 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 600; letter-spacing: 0.5px;">MW Link Monitor Notification</h2>
+        </div>
         
-        <p>A new event has been logged for your Microwave Link infrastructure.</p>
+        <div class="content" style="padding: 30px;">
+            <p class="greeting" style="font-size: 16px; margin-top: 0; margin-bottom: 20px; color: #1a202c;">Hello {{ user_name|default('User') }},</p>
+            
+            <p style="margin-bottom: 20px;">A new event has been logged for your Microwave Link infrastructure.</p>
+            
+            <div class="event-badge" style="display: inline-block; padding: 6px 12px; border-radius: 4px; font-weight: 700; font-size: 13px; margin-bottom: 20px; letter-spacing: 0.5px; background-color: {{ bg_color }}; color: {{ color }}; border: 1px solid {{ color }};">
+                {{ badge_text }}
+            </div>
+            
+            <div class="message-box" style="background-color: #f8fafc; border-left: 4px solid {{ color }}; padding: 15px; margin-bottom: 25px; border-radius: 0 4px 4px 0; color: #334155;">
+                <strong>Message:</strong> {{ message }}
+            </div>
+            
+            <div class="section-title" style="font-size: 14px; text-transform: uppercase; color: #64748b; font-weight: 700; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">Link Details</div>
+            
+            <table class="details-table" style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+                <tr>
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; width: 35%; color: #64748b; font-weight: 600;">Time</th>
+                    <td style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #1e293b; font-weight: 500;">{{ timestamp }}</td>
+                </tr>
+                <tr>
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #64748b; font-weight: 600;">Link ID</th>
+                    <td style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #1e293b; font-weight: 500;">{{ link.link_id }}</td>
+                </tr>
+                <tr>
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #64748b; font-weight: 600;">Leg Name</th>
+                    <td style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #1e293b; font-weight: 500;">{{ link.leg_name }}</td>
+                </tr>
+                <tr>
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #64748b; font-weight: 600;">IP Address</th>
+                    <td style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #1e293b; font-weight: 500;">{{ link.mw_ip }}</td>
+                </tr>
+                <tr>
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #64748b; font-weight: 600;">Sites</th>
+                    <td style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #1e293b; font-weight: 500;">{{ link.site_a|default('N/A') }} ↔ {{ link.site_b|default('N/A') }}</td>
+                </tr>
+                <tr>
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #64748b; font-weight: 600;">Equipment</th>
+                    <td style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #1e293b; font-weight: 500;">{{ link.equipment_a|default('N/A') }} / {{ link.equipment_b|default('N/A') }}</td>
+                </tr>
+                {% if mw_capacity %}
+                <tr>
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #64748b; font-weight: 600;">MW Capacity</th>
+                    <td style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #1e293b; font-weight: 500;">{{ mw_capacity }} Mbps</td>
+                </tr>
+                {% endif %}
+                {% if mw_util_pct is not none %}
+                <tr>
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #64748b; font-weight: 600;">MW Utilization</th>
+                    <td style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #1e293b; font-weight: 500;">{{ mw_util_pct }}%</td>
+                </tr>
+                {% endif %}
+                {% if leg_util_pct is not none %}
+                <tr>
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #64748b; font-weight: 600;">Leg Utilization</th>
+                    <td style="padding: 10px 8px; border-bottom: 1px solid #f1f5f9; text-align: left; color: #1e293b; font-weight: 500;">{{ leg_util_pct }}%</td>
+                </tr>
+                {% endif %}
+            </table>
+        </div>
         
-        {% if event_type == 'DOWN' %}
-            <div class="event-type event-down">ALERT: LINK DOWN</div>
-        {% elif event_type == 'RECOVERED' or event_type == 'UP' %}
-            <div class="event-type event-up">RESOLVED: LINK RECOVERED</div>
-        {% elif event_type == 'ERROR' %}
-            <div class="event-type event-error">SYSTEM ERROR</div>
-        {% else %}
-            <div class="event-type event-info">EVENT: {{ event_type }}</div>
-        {% endif %}
-        
-        <p><strong>Message:</strong> {{ message }}</p>
-        
-        <table class="details-table">
-            <tr>
-                <th>Time</th>
-                <td>{{ timestamp }}</td>
-            </tr>
-            <tr>
-                <th>Link ID</th>
-                <td>{{ link.link_id }}</td>
-            </tr>
-            <tr>
-                <th>Leg Name</th>
-                <td>{{ link.leg_name }}</td>
-            </tr>
-            <tr>
-                <th>IP Address</th>
-                <td>{{ link.mw_ip }}</td>
-            </tr>
-            <tr>
-                <th>Sites</th>
-                <td>{{ link.site_a }} ↔ {{ link.site_b }}</td>
-            </tr>
-            <tr>
-                <th>Equipment</th>
-                <td>{{ link.equipment_a }} / {{ link.equipment_b }}</td>
-            </tr>
-        </table>
-    </div>
-    
-    <div class="footer">
-        <p>This is an automated notification from the MW Backup Link Monitor System.</p>
-        <p>To update your notification preferences, please log in to the dashboard.</p>
+        <div class="footer" style="background-color: #f8fafc; padding: 20px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0;">
+            <p style="margin-top: 0; margin-bottom: 5px;">This is an automated notification from the MW Backup Link Monitor System.</p>
+            <p style="margin: 0;">To update your notification preferences, please log in to the dashboard.</p>
+        </div>
     </div>
 </div>
 </body>

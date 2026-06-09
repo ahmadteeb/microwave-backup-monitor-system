@@ -323,12 +323,6 @@ def ping_single_link(link):
     except Exception as e:
         logger.error(f"Ping command failed for {link.mw_ip}: {e}")
         raw_output = str(e)
-        send_event_notification(
-            'ping_service_error',
-            f'Ping command failed for {link.link_id}: {e}',
-            link_id=link.link_id,
-            severity='error'
-        )
         reachable, latency_ms, packet_loss = False, None, None
 
     result = _persist_ping_result(link, reachable, latency_ms, packet_loss, raw_output, triggered_by='manual')
@@ -377,15 +371,6 @@ def _ping_one_link(link, settings):
             return (link.id, True, None)
         except Exception as e:
             logger.error(f"Failed to ping link {link.mw_ip} ({link.link_id}): {e}")
-            try:
-                send_event_notification(
-                    'ping_service_error',
-                    f'Ping execution failed for {link.link_id}: {e}',
-                    link_id=link.link_id,
-                    severity='error'
-                )
-            except Exception as notify_error:
-                logger.error(f"Failed to send notification: {notify_error}")
             
             # Persist the failure result
             try:

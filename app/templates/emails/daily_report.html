@@ -3,77 +3,140 @@
 <head>
     <meta charset="utf-8">
     <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }
-        .header { background: #2b6cb0; color: white; padding: 15px 20px; text-align: center; border-radius: 5px 5px 0 0; }
-        .content { padding: 20px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0 0 5px 5px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333333; margin: 0; padding: 0; background-color: #f1f5f9; }
+        .wrapper { padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .header { background: #1e293b; color: white; padding: 20px 25px; text-align: center; }
+        .header h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.5px; }
+        .content { padding: 30px 25px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; background: white; border: 1px solid #e2e8f0; }
         th, td { border: 1px solid #e2e8f0; padding: 10px; text-align: left; }
-        th { background: #edf2f7; font-weight: bold; }
-        .status-UP { color: #48bb78; font-weight: bold; }
-        .status-DOWN { color: #f56565; font-weight: bold; }
-        .status-WARNING { color: #ed8936; font-weight: bold; }
-        .footer { margin-top: 20px; font-size: 12px; color: #718096; text-align: center; }
+        th { background: #f1f5f9; font-weight: 600; color: #475569; }
+        .footer { background-color: #f8fafc; margin-top: 0; padding: 20px; font-size: 12px; color: #64748b; text-align: center; border-top: 1px solid #e2e8f0; }
     </style>
 </head>
-<body>
-    <div class="header">
-        <h2>MW Backup Link Monitor - Daily Report</h2>
-    </div>
-    <div class="content">
-        <p>Here is your daily summary report of all monitored links for {{ date }}.</p>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333333; margin: 0; padding: 0; background-color: #f1f5f9;">
+    
+<div class="wrapper" style="padding: 20px; background-color: #f1f5f9;">
+    <div class="container" style="max-width: 900px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
         
-        <h3>Link Status Overview</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Link ID</th>
-                    <th>Leg Name</th>
-                    <th>Status</th>
-                    <th>MW Util %</th>
-                    <th>Leg Util %</th>
-                    <th>Ping Latency</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for link in links %}
-                <tr>
-                    <td>{{ link.link_id }}</td>
-                    <td>{{ link.leg_name }}</td>
-                    <td class="status-{{ link.status }}">{{ link.status }}</td>
-                    <td>{{ link.mw_util_pct|default('N/A') }}</td>
-                    <td>{{ link.leg_util_pct|default('N/A') }}</td>
-                    <td>{{ link.latency_ms ~ ' ms' if link.latency_ms else 'N/A' }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="header" style="background-color: #1e293b; color: white; padding: 20px 25px; text-align: center;">
+            <h2 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.5px;">MW Backup Link Monitor - Daily Report</h2>
+        </div>
+        
+        <div class="content" style="padding: 30px 25px;">
+            <p style="margin-top: 0; margin-bottom: 25px; color: #475569; font-size: 15px;">Here is your daily summary report of all monitored links for <strong>{{ date }}</strong>.</p>
+            
+            {% set total_links = links|length %}
+            {% set up_links = links|selectattr('status', 'equalto', 'UP')|list|length %}
+            {% set down_links = links|selectattr('status', 'equalto', 'DOWN')|list|length %}
+            {% set warning_links = links|selectattr('status', 'equalto', 'WARNING')|list|length %}
 
-        {% if events %}
-        <h3 style="margin-top: 30px;">Recent Events (Last 24 Hours)</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Time</th>
-                    <th>Link ID</th>
-                    <th>Event</th>
-                    <th>Details</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for event in events %}
-                <tr>
-                    <td>{{ event.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                    <td>{{ event.link.link_id }}</td>
-                    <td class="status-{{ event.event_type }}">{{ event.event_type }}</td>
-                    <td>{{ event.details or '' }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endif %}
+            <div class="stats-container" style="display: table; width: 100%; margin-bottom: 30px; border-spacing: 10px; border-collapse: separate;">
+                <div class="stat-box" style="display: table-cell; background: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; text-align: center; border-radius: 6px; width: 25%;">
+                    <div style="font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 700; margin-bottom: 5px;">Total Links</div>
+                    <div style="font-size: 24px; color: #1e293b; font-weight: bold;">{{ total_links }}</div>
+                </div>
+                <div class="stat-box" style="display: table-cell; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; text-align: center; border-radius: 6px; width: 25%;">
+                    <div style="font-size: 12px; color: #166534; text-transform: uppercase; font-weight: 700; margin-bottom: 5px;">Links UP</div>
+                    <div style="font-size: 24px; color: #15803d; font-weight: bold;">{{ up_links }}</div>
+                </div>
+                <div class="stat-box" style="display: table-cell; background: #fef2f2; border: 1px solid #fecaca; padding: 15px; text-align: center; border-radius: 6px; width: 25%;">
+                    <div style="font-size: 12px; color: #991b1b; text-transform: uppercase; font-weight: 700; margin-bottom: 5px;">Links DOWN</div>
+                    <div style="font-size: 24px; color: #b91c1c; font-weight: bold;">{{ down_links }}</div>
+                </div>
+                <div class="stat-box" style="display: table-cell; background: #fffbeb; border: 1px solid #fde68a; padding: 15px; text-align: center; border-radius: 6px; width: 25%;">
+                    <div style="font-size: 12px; color: #92400e; text-transform: uppercase; font-weight: 700; margin-bottom: 5px;">Warnings</div>
+                    <div style="font-size: 24px; color: #b45309; font-weight: bold;">{{ warning_links }}</div>
+                </div>
+            </div>
+
+            <h3 style="color: #1e293b; font-size: 16px; margin-bottom: 10px; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px;">Link Status Overview</h3>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; background: white; border: 1px solid #e2e8f0; margin-bottom: 30px;">
+                <thead>
+                    <tr style="background: #f1f5f9;">
+                        <th style="border: 1px solid #e2e8f0; padding: 10px; text-align: left; color: #475569;">Link ID</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px; text-align: left; color: #475569;">Leg Name</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px; text-align: left; color: #475569;">Sites</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px; text-align: left; color: #475569;">Capacity</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; color: #475569;">Status</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; color: #475569;">MW %</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; color: #475569;">Leg %</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px; text-align: right; color: #475569;">Ping</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for link in links %}
+                    {% set row_bg = '#ffffff' %}
+                    {% if loop.index0 % 2 == 1 %}{% set row_bg = '#f8fafc' %}{% endif %}
+                    {% if link.status == 'DOWN' %}{% set row_bg = '#fef2f2' %}{% endif %}
+                    {% if link.status == 'WARNING' %}{% set row_bg = '#fffbeb' %}{% endif %}
+                    
+                    <tr style="background-color: {{ row_bg }};">
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; color: #334155;">{{ link.link_id }}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; font-weight: 600; color: #1e293b;">{{ link.leg_name }}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; color: #475569;">{{ link.site_a|default('N/A') }} ↔ {{ link.site_b|default('N/A') }}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; color: #475569;">{{ link.mw_capacity|default('N/A') ~ ' Mbps' if link.mw_capacity else 'N/A' }}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; font-weight: bold; color: {% if link.status == 'UP' %}#16a34a{% elif link.status == 'DOWN' %}#dc2626{% elif link.status == 'WARNING' %}#ea580c{% else %}#475569{% endif %};">{{ link.status }}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; color: #475569;">{{ link.mw_util_pct|default('N/A') }}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; color: #475569;">{{ link.leg_util_pct|default('N/A') }}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: right; color: #475569;">{{ link.latency_ms ~ ' ms' if link.latency_ms else 'N/A' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            {% if events %}
+            <h3 style="color: #1e293b; font-size: 16px; margin-bottom: 10px; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px;">Recent Events (Last 24 Hours)</h3>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; background: white; border: 1px solid #e2e8f0;">
+                <thead>
+                    <tr style="background: #f1f5f9;">
+                        <th style="border: 1px solid #e2e8f0; padding: 10px; text-align: left; color: #475569; width: 20%;">Time</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px; text-align: left; color: #475569; width: 15%;">Link ID</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px; text-align: left; color: #475569; width: 20%;">Event</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px; text-align: left; color: #475569; width: 45%;">Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in events %}
+                    {% set row_bg = '#ffffff' %}
+                    {% if loop.index0 % 2 == 1 %}{% set row_bg = '#f8fafc' %}{% endif %}
+                    {% set ev_type = event.event_type|upper %}
+                    {% if 'DOWN' in ev_type or 'CRITICAL' in ev_type %}{% set row_bg = '#fef2f2' %}{% endif %}
+                    
+                    {% set emoji = '🔵' %}
+                    {% set ev_color = '#3b82f6' %}
+                    {% if 'DOWN' in ev_type or 'CRITICAL' in ev_type %}
+                        {% set emoji = '🔴' %}
+                        {% set ev_color = '#dc2626' %}
+                    {% elif 'RECOVERED' in ev_type or 'UP' in ev_type %}
+                        {% set emoji = '🟢' %}
+                        {% set ev_color = '#16a34a' %}
+                    {% elif 'WARNING' in ev_type or 'HIGH' in ev_type %}
+                        {% set emoji = '🟡' %}
+                        {% set ev_color = '#ea580c' %}
+                    {% elif 'ERROR' in ev_type %}
+                        {% set emoji = '⚠️' %}
+                        {% set ev_color = '#4b5563' %}
+                    {% endif %}
+
+                    <tr style="background-color: {{ row_bg }};">
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; color: #64748b;">{{ event.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; font-weight: 500; color: #334155;">{{ event.link.link_id }}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; font-weight: bold; color: {{ ev_color }};">{{ emoji }} {{ event.event_type }}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; color: #475569;">{{ event.details or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+        </div>
+        
+        <div class="footer" style="background-color: #f8fafc; padding: 20px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0;">
+            <p style="margin-top: 0; margin-bottom: 5px;">This is an automated message from the MW Backup Link Monitor System.</p>
+            <p style="margin: 0;">Report generated on: {{ date }}</p>
+        </div>
     </div>
-    <div class="footer">
-        <p>This is an automated message from the MW Backup Link Monitor System.</p>
-    </div>
+</div>
 </body>
 </html>

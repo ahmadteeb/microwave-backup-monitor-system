@@ -57,10 +57,16 @@ def _send_email_notification(user_email, subject, body, smtp_config, html_body=N
         logger.error(f"Email send failed to {user_email}: {exc}")
 
 
-def _deliver_emails(user_emails, subject, body, smtp_config, html_body=None):
-    for email in user_emails:
-        if email:
-            _send_email_notification(email, subject, body, smtp_config, html_body=html_body)
+def _deliver_emails(payloads_or_emails, subject, body, smtp_config, html_body=None):
+    for item in payloads_or_emails:
+        if isinstance(item, dict):
+            email = item.get('email')
+            user_html = item.get('html_body') or html_body
+            if email:
+                _send_email_notification(email, subject, body, smtp_config, html_body=user_html)
+        else:
+            if item:
+                _send_email_notification(item, subject, body, smtp_config, html_body=html_body)
 
 
 def _emit_notification_ws(user_id, notification_data):
@@ -121,24 +127,54 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
             })
 
         if user_emails:
-            subject = f"[MW Monitor] {event_key.replace('_', ' ').title()}"
-            body = message
-            
-            html_body = None
+            link = None
             if link_id:
                 link = Link.query.filter_by(link_id=link_id).first()
-                if link:
-                    # Create application context if running in background thread
-                    from flask import current_app
-                    app = current_app._get_current_object()
-                    with app.app_context():
+
+            emoji_map = {
+                'critical': '🔴',
+                'error': '⚠️',
+                'warning': '🟡',
+                'info': '🔵'
+            }
+            if 'recovered' in event_key.lower() or 'up' in event_key.lower():
+                emoji_map['info'] = '🟢'
+
+            subject_emoji = emoji_map.get(severity, '🔵')
+            sev_str = severity.upper()
+            title_str = event_key.replace('_', ' ').title()
+
+            if link:
+                leg_name = getattr(link, 'leg_name', None) or link.link_id
+                subject = f"{subject_emoji} [{sev_str}] {title_str} — {leg_name}"
+            else:
+                subject = f"{subject_emoji} [{sev_str}] {title_str}"
+
+            body = message
+
+            email_payloads = []
+            from flask import current_app
+            app = current_app._get_current_object()
+            with app.app_context():
+                for user in users:
+                    user_name = getattr(user, 'full_name', None) or getattr(user, 'username', None) or user.email
+                    html_body = None
+                    if link:
                         html_body = render_template(
                             'emails/link_event.html',
                             event_type=event_key.split('_')[-1].upper(),
                             message=message,
                             link=link,
-                            timestamp=now.strftime('%Y-%m-%d %H:%M:%S')
+                            timestamp=now.strftime('%Y-%m-%d %H:%M:%S'),
+                            user_name=user_name,
+                            mw_capacity=getattr(link, 'mw_capacity', None),
+                            mw_util_pct=getattr(link, 'mw_util_pct', None),
+                            leg_util_pct=getattr(link, 'leg_util_pct', None)
                         )
+                    email_payloads.append({
+                        'email': user.email,
+                        'html_body': html_body
+                    })
 
             # Load SMTP config for email delivery
             smtp_record = SmtpConfig.query.first()
@@ -162,7 +198,7 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
                     'use_ssl': getattr(smtp_record, 'use_ssl', False),
                 }
             if smtp_config:
-                thread = threading.Thread(target=_deliver_emails, args=(user_emails, subject, body, smtp_config, html_body), daemon=True)
+                thread = threading.Thread(target=_deliver_emails, args=(email_payloads, subject, body, smtp_config, None), daemon=True)
                 thread.start()
         return len(notifications)
     except Exception as exc:
