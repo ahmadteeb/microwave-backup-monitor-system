@@ -26,6 +26,9 @@ async function loadPollingConfig() {
 
 // KPI Update (called from WebSocket or initial fetch)
 function handleKPIUpdate(data) {
+  if (data.next_ping_time) {
+    backendNextPingTime = new Date(data.next_ping_time).getTime();
+  }
   updateKPIValues(data);
   updateHealthBadge(data, null);
   lastPollAt = Date.now();
@@ -83,17 +86,21 @@ function updateHealthBadge(data, error) {
   }
 }
 
-// Countdown Timer
+let backendNextPingTime = null;
+
 function tickCountdown() {
-  let elapsed, remaining;
+  let remaining;
   
   if (isPinging && cycleStartedAt) {
     // During a ping cycle, show elapsed time / progress
-    elapsed = Math.floor((Date.now() - cycleStartedAt) / 1000);
+    const elapsed = Math.floor((Date.now() - cycleStartedAt) / 1000);
     remaining = Math.max(0, PING_INTERVAL_SECONDS - elapsed);
+  } else if (backendNextPingTime) {
+    // Use the backend's scheduled time for the next ping
+    remaining = Math.max(0, Math.floor((backendNextPingTime - Date.now()) / 1000));
   } else {
-    // Between cycles, count down to next ping
-    elapsed = Math.floor((Date.now() - lastPollAt) / 1000);
+    // Fallback: Between cycles, count down to next ping based on local lastPollAt
+    const elapsed = Math.floor((Date.now() - lastPollAt) / 1000);
     remaining = Math.max(0, PING_INTERVAL_SECONDS - elapsed);
   }
   

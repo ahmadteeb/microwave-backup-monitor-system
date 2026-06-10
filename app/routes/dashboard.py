@@ -33,6 +33,13 @@ def get_kpis():
     ok_pings = PingResult.query.filter(PingResult.timestamp >= since, PingResult.reachable.is_(True)).count()
     availability_pct = round((ok_pings / total_pings * 100), 1) if total_pings > 0 else None
 
+    from app.services.scheduler import _scheduler_instance
+    next_ping_time = None
+    if _scheduler_instance:
+        job = _scheduler_instance.get_job('ping_cycle')
+        if job and job.next_run_time:
+            next_ping_time = job.next_run_time.isoformat()
+
     return jsonify({
         "total_links": total_links,
         "mw_reachable": mw_reachable,
@@ -40,5 +47,6 @@ def get_kpis():
         "high_utilization": high_utilization,
         "uptime_display": uptime_display,
         "link_availability_24h": availability_pct,
-        "last_updated": datetime.utcnow().isoformat() + "Z"
+        "last_updated": datetime.utcnow().isoformat() + "Z",
+        "next_ping_time": next_ping_time
     }), 200
