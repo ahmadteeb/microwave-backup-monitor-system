@@ -2,6 +2,10 @@ import smtplib
 import threading
 from datetime import datetime, timedelta
 from email.message import EmailMessage
+import hashlib
+import base64
+import uuid
+import struct
 import logging
 from flask import render_template
 from app.models import db, User, NotificationSubscription, InAppNotification, SmtpConfig, Link, LinkStatus, WebhookConfig
@@ -36,14 +40,14 @@ NOTIFICATION_COOLDOWN_SECONDS = {
 # Severity-aware email subject templates (Tier 1.2)
 # Using uniform subjects for link events to ensure strict email client threading
 SUBJECT_TEMPLATES = {
-    'mw_link_down':        '[MW Monitor] Link Alert \u2014 {leg_name}',
-    'mw_link_flapping':    '[MW Monitor] Link Alert \u2014 {leg_name}',
-    'mw_link_recovered':   '[MW Monitor] Link Alert \u2014 {leg_name}',
-    'leg_util_high':       '[MW Monitor] Link Alert \u2014 {leg_name}',
-    'mw_util_high':        '[MW Monitor] Link Alert \u2014 {leg_name}',
-    'leg_util_near_cap':   '[MW Monitor] Link Alert \u2014 {leg_name}',
-    'consecutive_timeouts':'[MW Monitor] Link Alert \u2014 {leg_name}',
-    'ping_service_error':  '[MW Monitor] System Alert \u2014 Ping Service Error',
+    'mw_link_down':         '🔴 [DOWN] {link_id} — {leg_name}',
+    'mw_link_flapping':     '🟠 [FLAPPING] {link_id} — {leg_name}',
+    'mw_link_recovered':    '🟢 [RESOLVED] {link_id} — {leg_name}',
+    'leg_util_high':        '🟡 [HIGH UTIL] {link_id} — {leg_name} | Leg Utilization Warning',
+    'mw_util_high':         '🟡 [HIGH UTIL] {link_id} — {leg_name} | MW Utilization Warning',
+    'leg_util_near_cap':    '🔴 [NEAR CAPACITY] {link_id} — {leg_name} | Leg Near Limit',
+    'consecutive_timeouts': '⏱️ [TIMEOUTS] {link_id} — {leg_name} | Consecutive Ping Failures',
+    'ping_service_error':   '⚠️ [SERVICE ERROR] Ping Monitor — Internal Fault',
 }
 
 # Maps event_key to the LinkStatus timestamp column used for cooldown tracking
@@ -107,7 +111,62 @@ def _check_and_update_cooldown(event_key, link_id):
         return True  # fail-open: allow notification if cooldown check errors
 
 
-def _send_email_notification(user_email, subject, body, smtp_config, html_body=None, thread_id=None):
+def _build_down_thread_id(link_id_str: str, down_at: datetime) -> dict:
+    try:
+        down_epoch = int(down_at.timestamp())
+        message_id = f"<down-{link_id_str}-{down_epoch}@mwmonitor.local>"
+        
+        filetime = (down_epoch + 11644473600) * 10000000
+        ft_bytes = struct.pack('<Q', filetime)[:5]
+        link_hash = hashlib.md5(f"mwmonitor-{link_id_str}".encode()).digest()
+        
+        thread_index_bytes = b'\x01' + ft_bytes + link_hash
+        thread_index_b64 = base64.b64encode(thread_index_bytes).decode('ascii')
+        
+        return {
+            'message_id': message_id,
+            'thread_index': thread_index_b64,
+        }
+    except Exception as e:
+        logger.error(f"Failed to build down thread ID: {e}")
+        return {
+            'message_id': f"<{uuid.uuid4().hex}@mwmonitor.local>"
+        }
+
+def _build_recovery_thread_id(link_id_str: str, down_message_id: str, down_thread_index_b64: str, recovered_at: datetime, leg_name: str) -> dict:
+    try:
+        if not down_message_id or not down_thread_index_b64:
+            return _build_down_thread_id(link_id_str, recovered_at)
+            
+        recovered_epoch = int(recovered_at.timestamp())
+        message_id = f"<recovered-{link_id_str}-{recovered_epoch}@mwmonitor.local>"
+        
+        try:
+            down_epoch = int(down_message_id.split('-')[-1].split('@')[0])
+        except Exception:
+            down_epoch = recovered_epoch
+            
+        delta_seconds = max(0, recovered_epoch - down_epoch)
+        delta_filetime = delta_seconds * 10000000
+        delta_bytes = struct.pack('<Q', delta_filetime)[:5]
+        
+        base_bytes = base64.b64decode(down_thread_index_b64)
+        child_index_bytes = base_bytes + delta_bytes
+        child_index_b64 = base64.b64encode(child_index_bytes).decode('ascii')
+        
+        return {
+            'message_id': message_id,
+            'in_reply_to': down_message_id,
+            'references': down_message_id,
+            'thread_index': child_index_b64,
+        }
+    except Exception as e:
+        logger.error(f"Failed to build recovery thread ID: {e}")
+        return {
+            'message_id': f"<{uuid.uuid4().hex}@mwmonitor.local>"
+        }
+
+def _send_email_notification(user_email, subject, body, smtp_config, html_body=None, thread_headers=None):
     if not smtp_config:
         return
 
@@ -134,55 +193,49 @@ def _send_email_notification(user_email, subject, body, smtp_config, html_body=N
         msg['Subject'] = subject
         msg['From'] = smtp_config['from_address']
         msg['To'] = user_email
-        
-        import uuid
-        import hashlib
-        import base64
-        
-        # Every email gets exactly one Message-ID header
-        if thread_id and isinstance(thread_id, dict) and thread_id.get('msg_id'):
-            msg['Message-ID'] = thread_id['msg_id']
-        else:
-            msg['Message-ID'] = f"<{uuid.uuid4().hex}@mwmonitor.local>"
-            
-        if thread_id and isinstance(thread_id, dict):
-            if thread_id.get('in_reply_to'):
-                msg['References'] = thread_id['in_reply_to']
-                msg['In-Reply-To'] = thread_id['in_reply_to']
-                
-            thread_base = thread_id.get('thread_index_base')
-            if thread_base:
-                # Outlook strict threading headers
-                msg['Thread-Topic'] = subject
-                
-                # Generate a consistent 22-byte Thread-Index based on the thread base (link_id)
-                h = hashlib.md5(thread_base.encode('utf-8')).digest()
-                # 1 byte header (0x01) + 5 bytes fake timestamp + 16 bytes hash = 22 bytes
-                thread_index_bytes = b'\x01\x00\x00\x00\x00\x00' + h[:16]
-                msg['Thread-Index'] = base64.b64encode(thread_index_bytes).decode('ascii')
+
+        th = thread_headers or {}
+
+        # Message-ID — always set exactly once
+        msg['Message-ID'] = th.get('msg_id') or f"<{uuid.uuid4().hex}@mwmonitor.local>"
+
+        # Threading headers — only set when present
+        if th.get('in_reply_to'):
+            msg['In-Reply-To'] = th['in_reply_to']
+            msg['References'] = th['in_reply_to']   # single-hop chain is sufficient
+
+        if th.get('thread_topic'):
+            msg['Thread-Topic'] = th['thread_topic']
+
+        if th.get('thread_index'):
+            msg['Thread-Index'] = th['thread_index']   # already base64, set as-is
 
         msg.set_content(body)
         if html_body:
             msg.add_alternative(html_body, subtype='html')
-            
-        logger.info(f"Sending Email -> To: {user_email} | Message-ID: {msg.get('Message-ID')} | In-Reply-To: {msg.get('In-Reply-To')} | Thread-Index: {msg.get('Thread-Index')} | Subject: {subject}")
-            
+
+        logger.info(
+            f"Email \u2192 {user_email} | MsgID={msg.get('Message-ID')} "
+            f"| InReplyTo={msg.get('In-Reply-To')} "
+            f"| ThreadIndex={msg.get('Thread-Index', '')[:12]}... "
+            f"| Subject={subject}"
+        )
         server.send_message(msg)
         server.quit()
     except Exception as exc:
         logger.error(f"Email send failed to {user_email}: {exc}")
 
 
-def _deliver_emails(payloads_or_emails, subject, body, smtp_config, html_body=None, thread_id=None):
+def _deliver_emails(payloads_or_emails, subject, body, smtp_config, html_body=None, thread_headers=None):
     for item in payloads_or_emails:
         if isinstance(item, dict):
             email = item.get('email')
             user_html = item.get('html_body') or html_body
             if email:
-                _send_email_notification(email, subject, body, smtp_config, html_body=user_html, thread_id=thread_id)
+                _send_email_notification(email, subject, body, smtp_config, html_body=user_html, thread_headers=thread_headers)
         else:
             if item:
-                _send_email_notification(item, subject, body, smtp_config, html_body=html_body, thread_id=thread_id)
+                _send_email_notification(item, subject, body, smtp_config, html_body=html_body, thread_headers=thread_headers)
 
 
 def _deliver_webhooks(event_key, message, link, severity):
@@ -327,7 +380,7 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
             subject = SUBJECT_TEMPLATES.get(
                 event_key,
                 '[MW Monitor] {leg_name}'
-            ).format(leg_name=leg_name, event_key=event_key)
+            ).format(link_id=link_id, leg_name=leg_name, event_key=event_key)
 
             body = message
 
@@ -377,32 +430,82 @@ def send_event_notification(event_key, message, link_id=None, severity=None):
                     'use_ssl': getattr(smtp_record, 'use_ssl', False),
                 }
             if smtp_config:
-                import uuid
-                
                 thread_id_payload = {
                     'msg_id': f"<{uuid.uuid4().hex}@mwmonitor.local>",
                     'in_reply_to': None,
-                    'thread_index_base': f"link-{link.link_id}" if link else None
+                    'thread_index': None,
+                    'thread_topic': None,
                 }
                 
                 if link:
                     try:
-                        from app.models import LinkEventLog
-                        events = LinkEventLog.query.filter_by(link_id=link.id).order_by(LinkEventLog.timestamp.desc()).limit(2).all()
-                        if events:
-                            # If the latest event was created within the last 15 seconds, it was just flushed
-                            # by the current transaction, so this email represents that exact event.
-                            now = datetime.utcnow()
-                            # Use offset-naive comparison since events[0].timestamp is naive
-                            if (now - events[0].timestamp).total_seconds() < 15:
-                                thread_id_payload['msg_id'] = f"<event-{events[0].id}@mwmonitor.local>"
-                                if len(events) > 1:
-                                    thread_id_payload['in_reply_to'] = f"<event-{events[1].id}@mwmonitor.local>"
+                        if event_key == 'mw_link_down':
+                            down_epoch = int(now.timestamp())
+                            message_id = f"<down-{link.link_id}-{down_epoch}@mwmonitor.local>"
+                            
+                            filetime = (down_epoch + 11644473600) * 10000000
+                            ft_bytes = struct.pack('<Q', filetime)[:5]
+                            link_hash = hashlib.md5(f"mwmonitor-{link.link_id}".encode()).digest()
+                            thread_index_bytes = b'\x01' + ft_bytes + link_hash
+                            thread_index_b64 = base64.b64encode(thread_index_bytes).decode('ascii')
+                            
+                            status = LinkStatus.query.filter_by(link_id=link.id).first()
+                            if status:
+                                status.last_down_email_message_id = message_id
+                                status.last_down_email_thread_index = thread_index_b64
+                                db.session.commit()
+                            
+                            thread_id_payload = {
+                                'msg_id': message_id,
+                                'in_reply_to': None,
+                                'thread_index': thread_index_b64,
+                                'thread_topic': f"Link Alert \u2014 {link.leg_name}",
+                            }
+                            
+                        elif event_key == 'mw_link_recovered':
+                            status = LinkStatus.query.filter_by(link_id=link.id).first()
+                            down_message_id = status.last_down_email_message_id if status else None
+                            down_thread_index_b64 = status.last_down_email_thread_index if status else None
+                            
+                            if down_message_id and down_thread_index_b64:
+                                recovered_epoch = int(now.timestamp())
+                                
+                                try:
+                                    down_epoch = int(down_message_id.split('-')[-1].split('@')[0])
+                                except Exception:
+                                    down_epoch = recovered_epoch
+                                
+                                delta_seconds = max(0, recovered_epoch - down_epoch)
+                                delta_filetime = delta_seconds * 10000000
+                                delta_bytes = struct.pack('<Q', delta_filetime)[:5]
+                                
+                                base_bytes = base64.b64decode(down_thread_index_b64)
+                                child_index_bytes = base_bytes + delta_bytes
+                                child_index_b64 = base64.b64encode(child_index_bytes).decode('ascii')
+                                
+                                thread_id_payload = {
+                                    'msg_id': f"<recovered-{link.link_id}-{recovered_epoch}@mwmonitor.local>",
+                                    'in_reply_to': down_message_id,
+                                    'thread_index': child_index_b64,
+                                    'thread_topic': f"Link Alert \u2014 {link.leg_name}",
+                                }
+                                
+                                if not subject.startswith('Re:'):
+                                    subject = 'Re: ' + subject
+                                
+                                if status:
+                                    status.last_down_email_message_id = None
+                                    status.last_down_email_thread_index = None
+                                    db.session.commit()
                             else:
-                                # This is a secondary alert (like high util), it replies to the current active event
-                                thread_id_payload['in_reply_to'] = f"<event-{events[0].id}@mwmonitor.local>"
+                                thread_id_payload = {
+                                    'msg_id': f"<recovered-{link.link_id}-{int(now.timestamp())}@mwmonitor.local>",
+                                    'in_reply_to': None,
+                                    'thread_index': None,
+                                    'thread_topic': None,
+                                }
                     except Exception as e:
-                        logger.error(f"Failed to generate thread IDs: {e}")
+                        logger.error(f"Failed to generate thread headers: {e}")
                 
                 thread = threading.Thread(target=_deliver_emails, args=(email_payloads, subject, body, smtp_config, None, thread_id_payload), daemon=True)
                 thread.start()

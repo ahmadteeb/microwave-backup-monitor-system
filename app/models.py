@@ -206,6 +206,8 @@ class LinkStatus(db.Model):
     last_leg_high_notified_at = db.Column(db.DateTime, nullable=True)
     last_mw_high_notified_at = db.Column(db.DateTime, nullable=True)
     last_leg_near_cap_notified_at = db.Column(db.DateTime, nullable=True)
+    last_down_email_message_id = db.Column(db.String(200), nullable=True, server_default=db.text("NULL"))
+    last_down_email_thread_index = db.Column(db.String(100), nullable=True, server_default=db.text("NULL"))
 
 class WebhookConfig(db.Model):
     """Webhook/Slack notification channel configuration (Tier 3.4)."""
