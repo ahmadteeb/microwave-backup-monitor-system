@@ -43,7 +43,7 @@ let currentUser = null;
 
 // ── Permission labels ─────────────────────────────────────────────────────────
 const PERMISSION_LABELS = {
-  'links.view': 'View links', 'links.add': 'Add links', 'links.edit': 'Edit links',
+  'links.view': 'View links', 'links.add': 'Add links', 'links.bulk_add': 'Bulk add links', 'links.edit': 'Edit links',
   'links.delete': 'Delete links', 'links.ping': 'Manual ping', 'links.export': 'Export links',
   'users.view': 'View users', 'users.add': 'Add users', 'users.edit': 'Edit users',
   'users.delete': 'Delete users', 'users.reset_password': 'Reset passwords',
@@ -55,7 +55,7 @@ const PERMISSION_LABELS = {
   'notifications.manage_all': 'Manage all notifications'
 };
 const PERMISSION_GROUPS = {
-  'Links': ['links.view','links.add','links.edit','links.delete','links.ping','links.export'],
+  'Links': ['links.view','links.add','links.bulk_add','links.edit','links.delete','links.ping','links.export'],
   'Users': ['users.view','users.add','users.edit','users.delete','users.reset_password','users.manage_permissions'],
   'Config': ['config.view','config.edit_smtp','config.edit_jumpserver','config.edit_app'],
   'Logs': ['logs.view_system','logs.view_ping','logs.export'],
@@ -157,7 +157,6 @@ async function loadSystemLogs() {
 // ── Users Table ───────────────────────────────────────────────────────────────
 function _roleBadgeClass(role) {
   if (role === 'admin') return 'role-admin';
-  if (role === 'operator') return 'role-operator';
   return 'role-viewer';
 }
 function _statusBadge(status) {
@@ -222,7 +221,7 @@ async function openCreateUserModal() {
   document.getElementById('user-modal-username').value = '';
   document.getElementById('user-modal-username').disabled = false;
   document.getElementById('user-modal-email').value = '';
-  document.getElementById('user-modal-role').value = 'operator';
+  document.getElementById('user-modal-role').value = 'admin';
   document.getElementById('user-modal-password').value = '';
   document.getElementById('user-modal-password-group').classList.remove('hidden');
   document.getElementById('user-modal-active').checked = true;

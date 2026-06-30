@@ -440,6 +440,37 @@
     </div>
   </div>
 
+  <div class="modal-overlay hidden" id="bulk-add-modal">
+    <div class="modal settings-modal" style="width: 500px;">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-file-excel text-teal"></i> Bulk Add Links</div>
+        <button class="modal-close" id="btn-close-bulk-modal"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 16px;">Upload an Excel (.xlsx) file to add multiple links at once. If a Link ID already exists, it will be skipped.</p>
+        
+        <div style="margin-bottom: 24px;">
+          <a href="/api/links/bulk-template" class="btn-secondary btn-inline" download><i class="fa-solid fa-download"></i> Download Template</a>
+        </div>
+        
+        <div class="form-group full">
+          <label class="form-label">Upload Excel File</label>
+          <input type="file" id="bulk-upload-file" class="form-control" accept=".xlsx" style="padding: 10px;">
+        </div>
+        
+        <div id="bulk-add-results" class="hidden" style="margin-top: 16px; font-size: 0.9em;">
+          <!-- Results will be injected here -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-cancel-bulk-modal">CANCEL</button>
+          <button class="btn-primary" id="btn-submit-bulk-modal"><i class="fa-solid fa-cloud-arrow-up"></i> UPLOAD</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   {% block extra_modals %}{% endblock %}
 
   <script src="{{ url_for('static', filename='js/api.js') }}"></script>

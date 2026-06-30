@@ -6,7 +6,7 @@ services:
       - mw_backup_link_monitor_system:/app/data
     networks:
       monitor_network:
-        ipv4_address: 172.20.0.2
+        ipv4_address: 172.50.0.2
     restart: unless-stopped
 
 volumes:

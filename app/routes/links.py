@@ -2,8 +2,9 @@ import csv
 import io
 import re
 import logging
+import openpyxl
 from datetime import datetime
-from flask import Blueprint, request, jsonify, Response, session
+from flask import Blueprint, request, jsonify, Response, session, send_file
 from app.models import db, Link, PingResult, AppSettings, LinkStatus
 from app.services.ping_service import ping_single_link
 from app.services.notification_service import send_event_notification
@@ -479,3 +480,150 @@ def submit_metric(id):
 
     db.session.commit()
     return jsonify({'result': 'metric recorded'}), 201
+
+
+@links_bp.route('/bulk-template', methods=['GET'])
+@login_required
+@require_permission('links.bulk_add')
+def download_bulk_template():
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Bulk Links Template"
+    
+    headers = [
+        "link_id", "leg_name", "site_a", "site_b", 
+        "mw_ip", "util_warning_threshold_pct", 
+        "util_critical_threshold_pct", "notes"
+    ]
+    ws.append(headers)
+    
+    # Add a sample row
+    ws.append([
+        "LINK-1234", "NorthRegion-Leg1", "SiteA-Router", "SiteB-Router", 
+        "192.168.10.5", 75, 95, "Sample row, please delete"
+    ])
+    
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name='bulk_links_template.xlsx'
+    )
+
+@links_bp.route('/bulk', methods=['POST'])
+@login_required
+@require_permission('links.bulk_add')
+def bulk_upload():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part in the request"}), 400
+        
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+        
+    if not file.filename.endswith('.xlsx'):
+        return jsonify({"error": "Invalid file type. Please upload an .xlsx file"}), 400
+
+    try:
+        wb = openpyxl.load_workbook(file)
+        ws = wb.active
+    except Exception as e:
+        return jsonify({"error": f"Failed to read Excel file: {str(e)}"}), 400
+
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows or len(rows) < 2:
+        return jsonify({"error": "File is empty or missing headers"}), 400
+
+    headers = [str(h).lower().strip() if h else '' for h in rows[0]]
+    
+    required_cols = ['link_id', 'leg_name', 'mw_ip']
+    for req in required_cols:
+        if req not in headers:
+            return jsonify({"error": f"Missing required column: {req}"}), 400
+
+    idx_map = {h: i for i, h in enumerate(headers)}
+    
+    success_count = 0
+    failed_rows = []
+    
+    for row_idx, row in enumerate(rows[1:], start=2):
+        try:
+            link_id = str(row[idx_map['link_id']]).strip() if row[idx_map.get('link_id')] else None
+            leg_name = str(row[idx_map['leg_name']]).strip() if row[idx_map.get('leg_name')] else None
+            mw_ip = str(row[idx_map['mw_ip']]).strip() if row[idx_map.get('mw_ip')] else None
+            
+            if not link_id or not leg_name or not mw_ip:
+                failed_rows.append({"row": row_idx, "reason": "Missing link_id, leg_name, or mw_ip"})
+                continue
+                
+            if not validate_ipv4(mw_ip):
+                failed_rows.append({"row": row_idx, "reason": "Invalid IPv4 address format"})
+                continue
+
+            existing = Link.query.filter_by(link_id=link_id).first()
+            if existing:
+                failed_rows.append({"row": row_idx, "reason": f"Link ID {link_id} already exists"})
+                continue
+
+            site_a = str(row[idx_map['site_a']]).strip() if 'site_a' in idx_map and row[idx_map['site_a']] is not None else None
+            site_b = str(row[idx_map['site_b']]).strip() if 'site_b' in idx_map and row[idx_map['site_b']] is not None else None
+            notes = str(row[idx_map['notes']]).strip() if 'notes' in idx_map and row[idx_map['notes']] is not None else None
+            
+            warn_pct = None
+            if 'util_warning_threshold_pct' in idx_map and row[idx_map['util_warning_threshold_pct']] is not None:
+                try:
+                    warn_pct = float(row[idx_map['util_warning_threshold_pct']])
+                except ValueError:
+                    pass
+
+            crit_pct = None
+            if 'util_critical_threshold_pct' in idx_map and row[idx_map['util_critical_threshold_pct']] is not None:
+                try:
+                    crit_pct = float(row[idx_map['util_critical_threshold_pct']])
+                except ValueError:
+                    pass
+
+            link = Link(
+                link_id=link_id,
+                leg_name=leg_name,
+                site_a=site_a,
+                site_b=site_b,
+                mw_ip=mw_ip,
+                link_type='microwave',
+                notes=notes,
+                is_active=True,
+                util_warning_threshold_pct=warn_pct,
+                util_critical_threshold_pct=crit_pct,
+            )
+            db.session.add(link)
+            db.session.flush() # Ensure link has an ID before fetching external status
+            try:
+                refresh_external_utilization_for_single_link(link)
+            except Exception as e:
+                logger.warning(f"Failed to fetch initial external status for bulk link {link_id}: {e}")
+                
+            success_count += 1
+            
+        except Exception as e:
+            failed_rows.append({"row": row_idx, "reason": str(e)})
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
+
+    if success_count > 0:
+        write_log('links', 'bulk_add_links', session.get('username', 'system'), 'BULK',
+                  {'count': success_count, 'failures': len(failed_rows)}, ip_address=request.remote_addr)
+
+    return jsonify({
+        "message": f"Successfully imported {success_count} links.",
+        "success_count": success_count,
+        "failed_count": len(failed_rows),
+        "failures": failed_rows
+    }), 201

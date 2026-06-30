@@ -45,9 +45,7 @@ def create_app(config_class=Config):
         from app.permissions import ROLE_DEFAULTS
         
         roles_to_seed = [
-            ('admin', 'System Administrator with full access'),
-            ('operator', 'Operations user capable of managing links and users'),
-            ('viewer', 'Read-only access to monitoring data')
+            ('admin', 'System Administrator with full access')
         ]
         
         for role_name, desc in roles_to_seed:

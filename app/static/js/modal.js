@@ -304,3 +304,116 @@ if (btnFetchLegInfo) {
 modalOverlay.addEventListener('click', (e) => {
   if (e.target === modalOverlay) closeModal();
 });
+
+// Bulk Add Logic
+const btnBulkAdd = document.getElementById('btn-bulk-add');
+const bulkAddModal = document.getElementById('bulk-add-modal');
+const btnCloseBulkModal = document.getElementById('btn-close-bulk-modal');
+const btnCancelBulkModal = document.getElementById('btn-cancel-bulk-modal');
+const btnSubmitBulkModal = document.getElementById('btn-submit-bulk-modal');
+const bulkUploadFile = document.getElementById('bulk-upload-file');
+const bulkAddResults = document.getElementById('bulk-add-results');
+
+function openBulkModal() {
+  if (bulkUploadFile) bulkUploadFile.value = '';
+  if (bulkAddResults) {
+    bulkAddResults.innerHTML = '';
+    bulkAddResults.classList.add('hidden');
+  }
+  if (bulkAddModal) {
+    bulkAddModal.classList.remove('hidden');
+    bulkAddModal.classList.add('active');
+  }
+}
+
+function closeBulkModal() {
+  if (bulkAddModal) {
+    bulkAddModal.classList.remove('active');
+  }
+}
+
+if (btnBulkAdd) {
+  btnBulkAdd.addEventListener('click', openBulkModal);
+}
+
+if (btnCloseBulkModal) {
+  btnCloseBulkModal.addEventListener('click', closeBulkModal);
+}
+
+if (btnCancelBulkModal) {
+  btnCancelBulkModal.addEventListener('click', closeBulkModal);
+}
+
+if (bulkAddModal) {
+  bulkAddModal.addEventListener('click', (e) => {
+    if (e.target === bulkAddModal) closeBulkModal();
+  });
+}
+
+if (btnSubmitBulkModal) {
+  btnSubmitBulkModal.addEventListener('click', async () => {
+    if (!bulkUploadFile || !bulkUploadFile.files || bulkUploadFile.files.length === 0) {
+      window.showToast('Please select a file to upload.', 'error');
+      return;
+    }
+
+    const file = bulkUploadFile.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+
+    window.setButtonLoading(btnSubmitBulkModal, true, 'UPLOADING...');
+    if (bulkAddResults) {
+      bulkAddResults.innerHTML = '';
+      bulkAddResults.className = 'hidden';
+    }
+
+    try {
+      // Direct fetch to handle multipart/form-data
+      const response = await fetch('/api/links/bulk', {
+        method: 'POST',
+        body: formData,
+        // Don't set Content-Type header, let browser boundary handle it
+        headers: {
+          // If you have auth tokens, add them here
+        }
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      window.showToast(data.message, 'success');
+      
+      // Show results
+      if (bulkAddResults) {
+        bulkAddResults.classList.remove('hidden');
+        let html = `<div style="color: var(--status-up); margin-bottom: 8px;">Success: ${data.success_count} links added.</div>`;
+        if (data.failed_count > 0) {
+          html += `<div style="color: var(--status-down); font-weight: bold; margin-bottom: 4px;">Failed rows (${data.failed_count}):</div>`;
+          html += `<ul style="color: var(--status-down); margin: 0; padding-left: 20px; max-height: 150px; overflow-y: auto;">`;
+          data.failures.forEach(f => {
+            html += `<li>Row ${f.row}: ${f.reason}</li>`;
+          });
+          html += `</ul>`;
+        }
+        bulkAddResults.innerHTML = html;
+      }
+      
+      if (window.refreshTable && data.success_count > 0) {
+        window.refreshTable();
+      }
+      
+    } catch (err) {
+      window.showToast('Upload error: ' + err.message, 'error');
+      if (bulkAddResults) {
+        bulkAddResults.classList.remove('hidden');
+        bulkAddResults.innerHTML = `<div style="color: var(--status-down);">Error: ${err.message}</div>`;
+      }
+    } finally {
+      window.setButtonLoading(btnSubmitBulkModal, false);
+      if (bulkUploadFile) bulkUploadFile.value = '';
+    }
+  });
+}

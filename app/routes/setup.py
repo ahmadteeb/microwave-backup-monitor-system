@@ -256,6 +256,30 @@ def complete_setup():
     from sqlalchemy.orm import sessionmaker
 
     try:
+        engine_type = db_config.get('engine')
+        if engine_type in ['mysql', 'postgres']:
+            driver = DB_ENGINES[engine_type]
+            username = quote_plus(str(db_config.get('username', '')).strip())
+            password = quote_plus(str(db_config.get('password', '') or ''))
+            host = db_config.get('host').strip()
+            port = int(db_config.get('port'))
+            database_name = db_config.get('database').strip()
+            
+            default_db = 'postgres' if engine_type == 'postgres' else ''
+            base_url = f'{driver}://{username}:{password}@{host}:{port}/{default_db}'
+            
+            try:
+                base_engine = sqlalchemy.create_engine(base_url)
+                with base_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                    if engine_type == 'postgres':
+                        result = conn.execute(sqlalchemy.text(f"SELECT 1 FROM pg_database WHERE datname='{database_name}'"))
+                        if not result.fetchone():
+                            conn.execute(sqlalchemy.text(f'CREATE DATABASE "{database_name}"'))
+                    elif engine_type == 'mysql':
+                        conn.execute(sqlalchemy.text(f"CREATE DATABASE IF NOT EXISTS `{database_name}`"))
+            except Exception as e:
+                current_app.logger.warning(f"Could not automatically create database {database_name}: {e}")
+
         new_engine = sqlalchemy.create_engine(resolved_url)
         db.metadata.create_all(new_engine)
         Session = sessionmaker(bind=new_engine)
@@ -273,6 +297,15 @@ def complete_setup():
             return jsonify({'error': 'Username already exists'}), 409
         if new_session.query(User).filter_by(email=data['email']).first():
             return jsonify({'error': 'Email already exists'}), 409
+
+        from app.models import Role
+        # Ensure default roles exist
+        admin_role = new_session.query(Role).filter_by(name='admin').first()
+        if not admin_role:
+            admin_role = Role(name='admin', description='System Administrator', is_system=True)
+            new_session.add(admin_role)
+            
+        new_session.flush()
 
         password_hash = bcrypt.generate_password_hash(data['password']).decode('utf-8')
         user = User(
