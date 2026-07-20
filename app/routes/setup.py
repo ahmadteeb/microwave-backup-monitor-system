@@ -82,7 +82,7 @@ def _save_secrets(db_config, database_url, secret_key):
 
 setup_bp = Blueprint('setup', __name__, url_prefix='/api/setup')
 
-USERNAME_PATTERN = re.compile(r'^[a-z0-9-]+$')
+USERNAME_PATTERN = re.compile(r'^[a-z0-9.-]+$')
 EVENT_KEYS = [
     'mw_link_down',
     'mw_link_recovered',
@@ -108,7 +108,7 @@ def _validate_setup_payload(data):
         errors['full_name'] = 'Full Name is required.'
     username = data.get('username')
     if not username or not USERNAME_PATTERN.match(username):
-        errors['username'] = 'Username must be lowercase, alphanumeric, or hyphens.'
+        errors['username'] = 'Username must be lowercase, alphanumeric, dots, or hyphens.'
     if not _validate_email(data.get('email')):
         errors['email'] = 'Valid email is required.'
     password = data.get('password', '')
