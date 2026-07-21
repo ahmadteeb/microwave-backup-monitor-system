@@ -17,7 +17,6 @@ window.fetchAPI = async function(url, options = {}) {
     }
 
     const socket = io({
-      transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
