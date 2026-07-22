@@ -291,7 +291,7 @@ if (btnTableDownload) {
     if (search) {
       params.set('search', search);
     }
-    window.location.href = `/api/links/export?${params.toString()}`;
+    window.location.href = window.APP_PREFIX + `/api/links/export?${params.toString()}`;
   });
 }
 

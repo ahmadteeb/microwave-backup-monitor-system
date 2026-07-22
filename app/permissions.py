@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import session, request, redirect, jsonify
+from flask import session, request, redirect, jsonify, url_for
 from app.models import db, User
 
 ROLE_DEFAULTS = {
@@ -60,7 +60,7 @@ def login_required(f):
         if not user_id:
             if _is_api_request():
                 return jsonify({'error': 'Authentication required'}), 401
-            return redirect('/login')
+            return redirect(url_for('login_page'))
         return f(*args, **kwargs)
     return wrapper
 

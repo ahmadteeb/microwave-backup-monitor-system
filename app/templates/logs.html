@@ -8,7 +8,7 @@
   </div>
   <div class="page-actions">
     <button class="btn-secondary" id="btn-refresh-logs">REFRESH</button>
-    <a href="/api/logs/system/export" class="btn-primary">EXPORT CSV</a>
+    <a href="{{ url_for('logs.export_system_logs') }}" class="btn-primary">EXPORT CSV</a>
   </div>
 </div>
 <div class="table-container">

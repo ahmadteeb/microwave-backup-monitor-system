@@ -1,5 +1,11 @@
+const prefixMeta = document.querySelector('meta[name="app-prefix"]');
+window.APP_PREFIX = prefixMeta ? prefixMeta.getAttribute('content').replace(/\/$/, "") : '';
+
 // Shared API Helper
 async function fetchAPI(url, options = {}) {
+  if (url.startsWith('/')) {
+    url = window.APP_PREFIX + url;
+  }
   try {
     const response = await fetch(url, options);
     if (!response.ok) {
@@ -563,10 +569,10 @@ async function handleComplete(event) {
         type: 'success',
         buttonText: 'CONTINUE'
       });
-      window.location.href = '/login';
+      window.location.href = window.APP_PREFIX + '/login';
     } else {
       setTimeout(() => {
-        window.location.href = '/login';
+        window.location.href = window.APP_PREFIX + '/login';
       }, 2000);
     }
   } catch (error) {

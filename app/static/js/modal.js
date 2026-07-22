@@ -369,7 +369,7 @@ if (btnSubmitBulkModal) {
 
     try {
       // Direct fetch to handle multipart/form-data
-      const response = await fetch('/api/links/bulk', {
+      const response = await fetch(window.APP_PREFIX + '/api/links/bulk', {
         method: 'POST',
         body: formData,
         // Don't set Content-Type header, let browser boundary handle it

@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="MW Backup Link Monitor System — Real-time microwave link health monitoring, utilization tracking, and network stability analysis for NOC operations.">
+  <meta name="app-prefix" content="{{ config.APPLICATION_ROOT if config.APPLICATION_ROOT != '/' else '' }}">
   <title>MW Backup Link Monitor System</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}?v=2">
@@ -450,7 +451,7 @@
         <p style="margin-bottom: 16px;">Upload an Excel (.xlsx) file to add multiple links at once. If a Link ID already exists, it will be skipped.</p>
         
         <div style="margin-bottom: 24px;">
-          <a href="/api/links/bulk-template" class="btn-secondary btn-inline" download><i class="fa-solid fa-download"></i> Download Template</a>
+          <a href="{{ url_for('links.download_bulk_template') }}" class="btn-secondary btn-inline" download><i class="fa-solid fa-download"></i> Download Template</a>
         </div>
         
         <div class="form-group full">

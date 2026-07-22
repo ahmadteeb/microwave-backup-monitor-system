@@ -1,4 +1,10 @@
+const prefixMeta = document.querySelector('meta[name="app-prefix"]');
+window.APP_PREFIX = prefixMeta ? prefixMeta.getAttribute('content').replace(/\/$/, "") : '';
+
 window.fetchAPI = async function(url, options = {}) {
+  if (url.startsWith('/')) {
+    url = window.APP_PREFIX + url;
+  }
   const response = await fetch(url, options);
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
@@ -17,6 +23,7 @@ window.fetchAPI = async function(url, options = {}) {
     }
 
     const socket = io({
+      path: window.APP_PREFIX + '/socket.io',
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,

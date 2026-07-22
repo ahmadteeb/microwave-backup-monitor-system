@@ -8,6 +8,8 @@ services:
       monitor_network:
         ipv4_address: 172.50.0.2
     restart: unless-stopped
+    environment:
+      - APPLICATION_ROOT=/mw-monitor
 
 volumes:
   mw_backup_link_monitor_system:

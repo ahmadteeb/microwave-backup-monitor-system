@@ -1,5 +1,11 @@
+const prefixMeta = document.querySelector('meta[name="app-prefix"]');
+window.APP_PREFIX = prefixMeta ? prefixMeta.getAttribute('content').replace(/\/$/, "") : '';
+
 // Shared API Helper
 async function fetchAPI(url, options = {}) {
+  if (url.startsWith('/')) {
+    url = window.APP_PREFIX + url;
+  }
   try {
     const response = await fetch(url, options);
     if (!response.ok) {
@@ -60,7 +66,8 @@ async function handleLogin(event) {
       body: JSON.stringify({ username, password })
     });
 
-    window.location.href = response.redirect || '/';
+    const redirectUrl = response.redirect || '/';
+    window.location.href = redirectUrl.startsWith('/') ? window.APP_PREFIX + redirectUrl : redirectUrl;
   } catch (error) {
     showError(error.message);
   } finally {

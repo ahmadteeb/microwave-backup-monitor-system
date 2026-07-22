@@ -1,5 +1,8 @@
 // Shared API Helper
 async function fetchAPI(url, options = {}) {
+  if (window.APP_PREFIX && url.startsWith('/')) {
+    url = window.APP_PREFIX + url;
+  }
   try {
     const response = await fetch(url, options);
     if (!response.ok) {
@@ -360,7 +363,7 @@ function toggleUserDropdown() { userDropdown.classList.toggle('active'); }
 async function handleLogout(event) {
   event.preventDefault();
   try { await fetchAPI('/api/auth/logout', { method: 'POST' }); } catch (error) {}
-  window.location.href = '/login';
+  window.location.href = window.APP_PREFIX + '/login';
 }
 
 // ── Event listeners ───────────────────────────────────────────────────────────

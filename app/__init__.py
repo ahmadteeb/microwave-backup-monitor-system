@@ -5,6 +5,18 @@ from flask import Flask, session, redirect, jsonify, request, render_template, u
 from app.config import Config
 from app.extensions import db, bcrypt, socketio, limiter
 from app.models import SetupState, AppSettings, User
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+class PrefixMiddleware(object):
+    def __init__(self, app, prefix=''):
+        self.app = app
+        self.prefix = prefix.rstrip('/')
+
+    def __call__(self, environ, start_response):
+        if self.prefix:
+            environ['SCRIPT_NAME'] = self.prefix
+        return self.app(environ, start_response)
+
 
 # Module-level app start time for health endpoint
 APP_START_TIME = datetime.utcnow()
@@ -23,6 +35,9 @@ def create_app(config_class=Config):
     bcrypt.init_app(app)
     socketio.init_app(app, cors_allowed_origins="*", async_mode='eventlet')
     limiter.init_app(app)
+
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    app.wsgi_app = PrefixMiddleware(app.wsgi_app, prefix=app.config.get('APPLICATION_ROOT', ''))
 
     global APP_START_TIME
     APP_START_TIME = datetime.utcnow()
@@ -140,13 +155,13 @@ def create_app(config_class=Config):
             if not is_setup_allowed(path):
                 if path.startswith('/api/'):
                     return jsonify({'error': 'Setup required'}), 403
-                return redirect('/setup')
+                return redirect(url_for('setup_page'))
             return
         else:
             if path == '/setup' or path.startswith('/api/setup'):
                 if path.startswith('/api/'):
                     return jsonify({'error': 'Setup already completed'}), 403
-                return redirect('/login')
+                return redirect(url_for('login_page'))
 
             # Allow public access to login, static resources, and health endpoints
             public_paths = (
@@ -166,7 +181,7 @@ def create_app(config_class=Config):
             session.clear()
             if path.startswith('/api/'):
                 return jsonify({'error': 'Authentication required'}), 401
-            return redirect('/login')
+            return redirect(url_for('login_page'))
 
         try:
             logged_in_at = datetime.fromisoformat(session['logged_in_at'])
@@ -174,7 +189,7 @@ def create_app(config_class=Config):
             session.clear()
             if path.startswith('/api/'):
                 return jsonify({'error': 'Authentication required'}), 401
-            return redirect('/login')
+            return redirect(url_for('login_page'))
 
         user = db.session.get(User, user_id)
         if user and user.force_password_change:
@@ -189,7 +204,7 @@ def create_app(config_class=Config):
             session.clear()
             if path.startswith('/api/'):
                 return jsonify({'error': 'Authentication required'}), 401
-            return redirect('/login')
+            return redirect(url_for('login_page'))
 
     @app.route('/')
     def index():

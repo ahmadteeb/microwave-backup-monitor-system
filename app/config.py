@@ -51,6 +51,7 @@ class Config:
     SECRET_KEY = _secret
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
     FLASK_ENV = os.environ.get('FLASK_ENV', 'production')
+    APPLICATION_ROOT = os.environ.get('APPLICATION_ROOT', '/')
 
     # Security: fail-fast if production completed setup but is still using the default key.
     # On first boot (before setup), no secrets.json exists yet, so the default key is
