@@ -140,7 +140,26 @@
           <input type="number" id="modal-critical-thresh" class="form-control text-mono" min="1" max="100" placeholder="Default: 90">
           <div class="form-helper">Optional override (e.g. 90)</div>
         </div>
-        <!-- Record utilization removed from Add/Edit link dialog per UX request -->
+        <div class="modal-section full" id="link-attachments-section" style="grid-column: span 2; margin-top: 16px;">
+          <div class="section-label required"><i class="fa-solid fa-paperclip text-teal"></i> Link Diagram Attachment (PDF / Visio)</div>
+          
+          <!-- Existing attachment card (in Edit mode if present) -->
+          <div id="modal-existing-attachments" class="attachment-list" style="display: none;"></div>
+
+          <!-- Staged file card (when a file is chosen) -->
+          <div id="modal-staged-attachments" class="staged-attachment-list" style="display: none;"></div>
+
+          <!-- Drag and drop / file selection area (hidden when a file is uploaded or staged) -->
+          <div class="attachment-dropzone" id="attachment-dropzone">
+            <input type="file" id="modal-attachment-input" accept=".pdf,.vsd,.vsdx,.vssx,.vstx" style="display: none;">
+            <i class="fa-solid fa-cloud-arrow-up dropzone-icon"></i>
+            <div class="dropzone-text">Click or drag &amp; drop a file here to attach diagram</div>
+            <div class="dropzone-subtext">Upload 1 Microsoft Visio (.vsd, .vsdx) or PDF (.pdf) file (Max 50MB)</div>
+          </div>
+
+          <div class="form-helper" id="modal-attachment-helper" style="margin-top: 6px;">Required field: Each link must have a Visio (.vsd, .vsdx) or PDF diagram attached.</div>
+        </div>
+
       </div>
       <div class="modal-footer">
         <div class="auth-stamp"><i class="fa-regular fa-circle-user"></i> Authenticated user</div>

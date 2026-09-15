@@ -21,7 +21,206 @@ const btnFetchLegInfo = document.getElementById('btn-fetch-leg-info');
 const externalLookupSection = document.getElementById('external-lookup-section');
 const externalLinkDetails = document.getElementById('external-link-details');
 const externalLegDetails = document.getElementById('external-leg-details');
-// Record utilization elements removed from modal UI
+
+// Attachment Elements & State
+const attachmentDropzone = document.getElementById('attachment-dropzone');
+const attachmentInput = document.getElementById('modal-attachment-input');
+const existingAttachmentsContainer = document.getElementById('modal-existing-attachments');
+const stagedAttachmentsContainer = document.getElementById('modal-staged-attachments');
+let stagedFiles = [];
+let currentLinkAttachments = [];
+
+const ALLOWED_EXTENSIONS = ['.pdf', '.vsd', '.vsdx', '.vssx', '.vstx'];
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function formatDate(isoStr) {
+  if (!isoStr) return '';
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return isoStr;
+  }
+}
+
+const attachmentHelper = document.getElementById('modal-attachment-helper');
+
+function updateAttachmentVisibility() {
+  const hasExisting = currentLinkAttachments && currentLinkAttachments.length > 0;
+  const hasStaged = stagedFiles && stagedFiles.length > 0;
+  
+  if (attachmentDropzone) {
+    if (hasExisting || hasStaged) {
+      attachmentDropzone.style.display = 'none';
+    } else {
+      attachmentDropzone.style.display = 'block';
+    }
+  }
+}
+
+function showAttachmentError(msg) {
+  if (attachmentHelper) {
+    attachmentHelper.textContent = msg;
+    attachmentHelper.classList.add('error');
+  }
+  if (attachmentDropzone) {
+    attachmentDropzone.classList.add('error');
+  }
+  window.showToast(msg, 'error');
+}
+
+function clearAttachmentError() {
+  if (attachmentHelper) {
+    attachmentHelper.textContent = 'Required field: Each link must have a Visio (.vsd, .vsdx) or PDF diagram attached.';
+    attachmentHelper.classList.remove('error');
+  }
+  if (attachmentDropzone) {
+    attachmentDropzone.classList.remove('error');
+  }
+}
+
+function renderExistingAttachments(attachments, linkId) {
+  currentLinkAttachments = attachments || [];
+  if (!existingAttachmentsContainer) return;
+
+  if (currentLinkAttachments.length === 0) {
+    existingAttachmentsContainer.innerHTML = '';
+    existingAttachmentsContainer.style.display = 'none';
+    updateAttachmentVisibility();
+    return;
+  }
+
+  existingAttachmentsContainer.style.display = 'flex';
+  existingAttachmentsContainer.innerHTML = '';
+
+  const att = currentLinkAttachments[0];
+  const isPdf = att.is_pdf || att.filename.toLowerCase().endsWith('.pdf');
+  const isVisio = att.is_visio || att.filename.toLowerCase().endsWith('.vsd') || att.filename.toLowerCase().endsWith('.vsdx');
+  
+  const iconClass = isPdf ? 'fa-solid fa-file-pdf text-danger' : (isVisio ? 'fa-solid fa-diagram-project text-teal' : 'fa-solid fa-file');
+  const typeLabel = isPdf ? 'PDF Document' : (isVisio ? 'Visio Diagram' : 'Attachment');
+  const typeBadgeClass = isPdf ? 'badge-pdf' : (isVisio ? 'badge-visio' : 'badge-file');
+
+  const item = document.createElement('div');
+  item.className = 'attachment-card';
+  const safeName = window.escapeHtml ? window.escapeHtml(att.filename) : att.filename;
+  item.innerHTML = `
+    <div class="attachment-icon-wrapper">
+      <i class="${iconClass}"></i>
+    </div>
+    <div class="attachment-info">
+      <div class="attachment-title" title="${safeName}">${safeName}</div>
+      <div class="attachment-submeta">
+        <span class="attachment-type-badge ${typeBadgeClass}">${typeLabel}</span>
+        <span class="attachment-size">${formatFileSize(att.file_size)}</span>
+        <span class="attachment-date">${formatDate(att.uploaded_at)}</span>
+      </div>
+    </div>
+    <div class="attachment-btn-group">
+      ${isPdf ? `<a href="${window.APP_PREFIX || ''}/api/links/${linkId}/attachments/${att.id}/download?view=1" target="_blank" class="attachment-action-btn view-btn" title="Preview PDF in new tab"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>` : ''}
+      <a href="${window.APP_PREFIX || ''}/api/links/${linkId}/attachments/${att.id}/download" download="${att.filename}" class="attachment-action-btn download-btn" title="Download file"><i class="fa-solid fa-download"></i></a>
+      <button type="button" class="attachment-action-btn delete-btn" title="Delete attachment" data-id="${att.id}"><i class="fa-solid fa-trash-can"></i></button>
+    </div>
+  `;
+
+  const deleteBtn = item.querySelector('.delete-btn');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', () => handleDeleteAttachment(linkId, att.id, att.filename));
+  }
+
+  existingAttachmentsContainer.appendChild(item);
+  clearAttachmentError();
+  updateAttachmentVisibility();
+}
+
+function renderStagedAttachments() {
+  if (!stagedAttachmentsContainer) return;
+  if (stagedFiles.length === 0) {
+    stagedAttachmentsContainer.innerHTML = '';
+    stagedAttachmentsContainer.style.display = 'none';
+    updateAttachmentVisibility();
+    return;
+  }
+
+  stagedAttachmentsContainer.style.display = 'flex';
+  stagedAttachmentsContainer.innerHTML = '<div class="staged-header"><i class="fa-solid fa-paperclip"></i> Staged diagram for upload upon saving:</div>';
+
+  stagedFiles.forEach((file, idx) => {
+    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+    const isVisio = file.name.toLowerCase().endsWith('.vsd') || file.name.toLowerCase().endsWith('.vsdx');
+    const iconClass = isPdf ? 'fa-solid fa-file-pdf text-danger' : (isVisio ? 'fa-solid fa-diagram-project text-teal' : 'fa-solid fa-file');
+
+    const item = document.createElement('div');
+    item.className = 'staged-file-item';
+    item.innerHTML = `
+      <div class="staged-file-left">
+        <i class="${iconClass}"></i>
+        <span class="staged-file-name" title="${file.name}">${file.name}</span>
+        <span class="staged-file-size">(${formatFileSize(file.size)})</span>
+      </div>
+      <button type="button" class="staged-file-remove" data-index="${idx}" title="Remove staged file"><i class="fa-solid fa-xmark"></i></button>
+    `;
+
+    item.querySelector('.staged-file-remove').addEventListener('click', () => {
+      stagedFiles = [];
+      renderStagedAttachments();
+    });
+
+    stagedAttachmentsContainer.appendChild(item);
+  });
+  clearAttachmentError();
+  updateAttachmentVisibility();
+}
+
+function addFilesToStaged(files) {
+  if (!files || files.length === 0) return;
+  const file = files[0];
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  if (!ALLOWED_EXTENSIONS.includes(ext)) {
+    window.showToast(`File type not allowed for ${file.name}. Allowed: PDF (.pdf) and Visio (.vsd, .vsdx)`, 'error');
+    return;
+  }
+  if (file.size > 50 * 1024 * 1024) {
+    window.showToast(`File ${file.name} exceeds 50MB maximum size limit.`, 'error');
+    return;
+  }
+  stagedFiles = [file];
+  renderStagedAttachments();
+}
+
+async function handleDeleteAttachment(linkId, attachmentId, filename) {
+  const confirmed = await window.showConfirm({
+    title: 'DELETE ATTACHMENT',
+    message: `Are you sure you want to delete attachment <strong>${window.escapeHtml ? window.escapeHtml(filename) : filename}</strong>?`,
+    confirmText: 'DELETE',
+    cancelText: 'CANCEL',
+    variant: 'danger'
+  });
+
+  if (!confirmed) return;
+
+  const loader = window.showLoading('Deleting attachment...');
+  try {
+    const res = await window.fetchAPI(`/api/links/${linkId}/attachments/${attachmentId}`, {
+      method: 'DELETE'
+    });
+    loader.close();
+    window.showToast('Attachment deleted successfully', 'success');
+    currentLinkAttachments = (res.link && res.link.attachments) ? res.link.attachments : [];
+    renderExistingAttachments(currentLinkAttachments, linkId);
+    if (window.refreshTable) window.refreshTable();
+  } catch (err) {
+    loader.close();
+    window.showToast('Failed to delete attachment: ' + err.message, 'error');
+  }
+}
 
 // Functions
 function openModal(mode = 'create', data = {}) {
@@ -35,11 +234,11 @@ function openModal(mode = 'create', data = {}) {
     inputSiteA.value = data.site_a || '';
     inputSiteB.value = data.site_b || '';
     inputMwIp.value = data.mw_ip;
-    inputWarningThresh.value = data.util_warning_threshold_pct !== null ? data.util_warning_threshold_pct : '';
-    inputCriticalThresh.value = data.util_critical_threshold_pct !== null ? data.util_critical_threshold_pct : '';
-    // Record utilization UI removed
+    inputWarningThresh.value = data.util_warning_threshold_pct !== null && data.util_warning_threshold_pct !== undefined ? data.util_warning_threshold_pct : '';
+    inputCriticalThresh.value = data.util_critical_threshold_pct !== null && data.util_critical_threshold_pct !== undefined ? data.util_critical_threshold_pct : '';
+    renderExistingAttachments(data.attachments || [], data.id);
   } else {
-    // Create mode: no record utilization UI
+    renderExistingAttachments([], null);
   }
   
   modalOverlay.classList.add('active');
@@ -47,6 +246,8 @@ function openModal(mode = 'create', data = {}) {
 
 function closeModal() {
   modalOverlay.classList.remove('active');
+  stagedFiles = [];
+  renderStagedAttachments();
 }
 
 function resetForm() {
@@ -58,8 +259,13 @@ function resetForm() {
   inputMwIp.value = '';
   inputWarningThresh.value = '';
   inputCriticalThresh.value = '';
+  stagedFiles = [];
+  if (attachmentInput) attachmentInput.value = '';
+  renderStagedAttachments();
+  renderExistingAttachments([], null);
   resetMetricFields();
   clearExternalLookup();
+  clearAttachmentError();
   inputMwIp.classList.remove('error');
   ipHelper.classList.remove('error');
   ipErrorIcon.classList.add('hidden');
@@ -84,13 +290,6 @@ function clearExternalLookup() {
 
 function renderLookupDetail(title, value) {
   return `<div class="lookup-detail"><strong>${title}:</strong> ${value !== null && value !== undefined ? value : 'N/A'}</div>`;
-}
-
-function showMetricError(msg) {
-  if (metricMessage) {
-    metricMessage.textContent = msg;
-    metricMessage.classList.add('error');
-  }
 }
 
 function validateIPv4(ip) {
@@ -123,16 +322,14 @@ async function handleSave() {
     showError('Invalid IPv4 address format.');
     return;
   }
-  
-  const payload = {
-    link_id: linkId,
-    leg_name: legName,
-    site_a: siteA,
-    site_b: siteB,
-    mw_ip: mwIp,
-    util_warning_threshold_pct: warningThresh,
-    util_critical_threshold_pct: criticalThresh
-  };
+
+  const hasExisting = currentLinkAttachments && currentLinkAttachments.length > 0;
+  const hasStaged = stagedFiles && stagedFiles.length > 0;
+  if (!hasExisting && !hasStaged) {
+    showAttachmentError('Link diagram attachment is required. Please attach a Visio (.vsd, .vsdx) or PDF file.');
+    return;
+  }
+
   
   const id = modalId.value;
   const isEdit = id !== '';
@@ -143,12 +340,50 @@ async function handleSave() {
   window.setButtonLoading(btnSaveModal, true, 'SAVING...');
   
   try {
-    const response = await window.fetchAPI(url, {
-      method: method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    let response;
+    if (stagedFiles.length > 0) {
+      // Use FormData for multipart submission including files
+      const formData = new FormData();
+      formData.append('link_id', linkId);
+      formData.append('leg_name', legName);
+      formData.append('site_a', siteA);
+      formData.append('site_b', siteB);
+      formData.append('mw_ip', mwIp);
+      if (warningThresh !== null) formData.append('util_warning_threshold_pct', warningThresh);
+      if (criticalThresh !== null) formData.append('util_critical_threshold_pct', criticalThresh);
+
+      stagedFiles.forEach(file => {
+        formData.append('attachments', file);
+      });
+
+      const res = await fetch((window.APP_PREFIX || '') + url, {
+        method: method,
+        body: formData
+      });
+      response = await res.json();
+      if (!res.ok) {
+        throw new Error(response.error || 'Failed to save link');
+      }
+    } else {
+      // Standard JSON submission
+      const payload = {
+        link_id: linkId,
+        leg_name: legName,
+        site_a: siteA,
+        site_b: siteB,
+        mw_ip: mwIp,
+        util_warning_threshold_pct: warningThresh,
+        util_critical_threshold_pct: criticalThresh
+      };
+
+      response = await window.fetchAPI(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    }
     
+    stagedFiles = [];
     closeModal();
     window.showToast(isEdit ? 'Link updated successfully' : 'Link created successfully', 'success');
     if (window.refreshTable) window.refreshTable();
@@ -159,6 +394,7 @@ async function handleSave() {
     window.setButtonLoading(btnSaveModal, false);
   }
 }
+
 
 async function handleFetchLinkInfo() {
   const linkId = inputLinkId.value.trim();
@@ -298,7 +534,43 @@ if (btnFetchLinkInfo) {
 if (btnFetchLegInfo) {
   btnFetchLegInfo.addEventListener('click', handleFetchLegInfo);
 }
-// submit metric button removed
+
+// Attachment Dropzone Event Listeners
+if (attachmentDropzone) {
+  attachmentDropzone.addEventListener('click', () => {
+    if (attachmentInput) attachmentInput.click();
+  });
+
+  attachmentDropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    attachmentDropzone.classList.add('drag-active');
+  });
+
+  attachmentDropzone.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    attachmentDropzone.classList.remove('drag-active');
+  });
+
+  attachmentDropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    attachmentDropzone.classList.remove('drag-active');
+    if (e.dataTransfer && e.dataTransfer.files) {
+      addFilesToStaged(e.dataTransfer.files);
+    }
+  });
+}
+
+if (attachmentInput) {
+  attachmentInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      addFilesToStaged(e.target.files);
+      attachmentInput.value = '';
+    }
+  });
+}
 
 // Close on backdrop click
 modalOverlay.addEventListener('click', (e) => {

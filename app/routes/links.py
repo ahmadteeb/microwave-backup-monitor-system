@@ -1,11 +1,15 @@
+import os
 import csv
 import io
 import re
+import uuid
 import logging
+import mimetypes
 import openpyxl
 from datetime import datetime
-from flask import Blueprint, request, jsonify, Response, session, send_file
-from app.models import db, Link, PingResult, AppSettings, LinkStatus
+from werkzeug.utils import secure_filename
+from flask import Blueprint, request, jsonify, Response, session, send_file, current_app, send_from_directory
+from app.models import db, Link, PingResult, AppSettings, LinkStatus, LinkAttachment
 from app.services.ping_service import ping_single_link
 from app.services.notification_service import send_event_notification
 from app.services.external_util_service import refresh_external_utilization_for_single_link, lookup_link_info, lookup_leg_info
@@ -19,6 +23,78 @@ links_bp = Blueprint('links', __name__, url_prefix='/api/links')
 def validate_ipv4(ip):
     pattern = re.compile(r'^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$')
     return pattern.match(ip)
+
+def get_file_type(filename):
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    if ext == 'pdf':
+        return 'pdf'
+    if ext in ('vsd', 'vsdx', 'vssx', 'vstx'):
+        return 'visio'
+    return 'other'
+
+def is_allowed_attachment(filename):
+    if '.' not in filename:
+        return False
+    ext = filename.rsplit('.', 1)[1].lower()
+    allowed = current_app.config.get('ALLOWED_ATTACHMENT_EXTENSIONS', {'pdf', 'vsd', 'vsdx', 'vssx', 'vstx'})
+    return ext in allowed
+
+def save_attachment_file(file_storage, link_id, user_id=None):
+    if not file_storage or not file_storage.filename:
+        return None
+    
+    orig_name = file_storage.filename
+    if not is_allowed_attachment(orig_name):
+        raise ValueError(f"File type not allowed for '{orig_name}'. Allowed: PDF (.pdf), Visio (.vsd, .vsdx)")
+    
+    clean_name = secure_filename(orig_name)
+    if not clean_name:
+        clean_name = "attachment"
+    
+    # Enforce only one file per link: remove any existing attachments
+    existing_atts = LinkAttachment.query.filter_by(link_id=link_id).all()
+    for old_att in existing_atts:
+        remove_attachment_file_from_disk(old_att.filename)
+        db.session.delete(old_att)
+    
+    stored_name = f"{uuid.uuid4().hex}_{clean_name}"
+    upload_dir = current_app.config.get('UPLOAD_FOLDER', os.path.join(current_app.config.get('APP_ROOT', '.'), 'data', 'uploads', 'attachments'))
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    file_path = os.path.join(upload_dir, stored_name)
+    file_storage.save(file_path)
+    file_size = os.path.getsize(file_path)
+    
+    attachment = LinkAttachment(
+        link_id=link_id,
+        filename=stored_name,
+        original_filename=orig_name,
+        file_type=get_file_type(orig_name),
+        file_size=file_size,
+        uploaded_by_id=user_id
+    )
+    db.session.add(attachment)
+    return attachment
+
+
+def remove_attachment_file_from_disk(stored_filename):
+    try:
+        upload_dir = current_app.config.get('UPLOAD_FOLDER', os.path.join(current_app.config.get('APP_ROOT', '.'), 'data', 'uploads', 'attachments'))
+        if upload_dir and stored_filename:
+            path = os.path.join(upload_dir, stored_filename)
+            if os.path.exists(path):
+                import gc
+                import time
+                for _ in range(3):
+                    try:
+                        os.remove(path)
+                        break
+                    except (PermissionError, OSError):
+                        gc.collect()
+                        time.sleep(0.05)
+    except Exception as e:
+        logger.warning(f"Failed to remove attachment file {stored_filename} from disk: {e}")
+
 
 def serialize_link(link):
     # Get latest ping result
@@ -74,6 +150,19 @@ def serialize_link(link):
                 except (TypeError, ValueError, ZeroDivisionError):
                     pass
 
+    attachments_list = []
+    if hasattr(link, 'attachments'):
+        for att in link.attachments.all():
+            attachments_list.append({
+                "id": att.id,
+                "filename": att.original_filename,
+                "file_type": att.file_type,
+                "file_size": att.file_size,
+                "uploaded_at": att.uploaded_at.isoformat() + "Z" if att.uploaded_at else None,
+                "is_pdf": att.file_type == 'pdf' or att.original_filename.lower().endswith('.pdf'),
+                "is_visio": att.file_type == 'visio' or att.original_filename.lower().endswith(('.vsd', '.vsdx', '.vssx', '.vstx'))
+            })
+
     return {
         "id": link.id,
         "link_id": link.link_id,
@@ -93,7 +182,10 @@ def serialize_link(link):
         # Per-link utilization thresholds (Tier 3.2)
         "util_warning_threshold_pct": link.util_warning_threshold_pct,
         "util_critical_threshold_pct": link.util_critical_threshold_pct,
+        # Attachments
+        "attachments": attachments_list
     }
+
 
 @links_bp.route('', methods=['GET'])
 @login_required
@@ -160,11 +252,13 @@ def export_links():
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Link ID", "Leg", "Site A", "Site B", "LEG Util %", "LEG Bitrate Mbps", "MW IP", "Link Type", "Status", "Latency ms", "Direct LEG Util %", "MW Util %", "MW/LEG %", "Link Cap Mbps", "Last Ping"])
+    writer.writerow(["Link ID", "Diagram Attachment", "Leg", "Site A", "Site B", "LEG Util %", "LEG Bitrate Mbps", "MW IP", "Link Type", "Status", "Latency ms", "Direct LEG Util %", "MW Util %", "MW/LEG %", "Link Cap Mbps", "Last Ping"])
 
     for link in exported:
+        diagram_name = link["attachments"][0]["filename"] if link.get("attachments") and len(link["attachments"]) > 0 else ''
         writer.writerow([
             link["link_id"],
+            diagram_name,
             link["leg_name"],
             link["site_a"],
             link["site_b"],
@@ -185,11 +279,46 @@ def export_links():
         'Content-Disposition': 'attachment; filename="active_link_inventory.csv"'
     })
 
+def _extract_link_payload():
+    if request.is_json:
+        return request.get_json() or {}
+    
+    data = {}
+    for key, value in request.form.items():
+        if key in ('util_warning_threshold_pct', 'util_critical_threshold_pct'):
+            if value is not None and str(value).strip() != '':
+                try:
+                    data[key] = float(value)
+                except ValueError:
+                    data[key] = None
+            else:
+                data[key] = None
+        else:
+            data[key] = value
+    return data
+
+def _process_uploaded_files(link_id, user_id=None):
+    f = None
+    if 'attachment' in request.files and request.files['attachment'].filename:
+        f = request.files['attachment']
+    elif 'file' in request.files and request.files['file'].filename:
+        f = request.files['file']
+    else:
+        files = request.files.getlist('attachments') or request.files.getlist('files')
+        if files and len(files) > 0 and files[0].filename:
+            f = files[0]
+            
+    if f and f.filename and f.filename.strip():
+        att = save_attachment_file(f, link_id, user_id=user_id)
+        return [att] if att else []
+    return []
+
+
 @links_bp.route('', methods=['POST'])
 @login_required
 @require_permission('links.add')
 def create_link():
-    data = request.get_json()
+    data = _extract_link_payload()
     if not data or not data.get('link_id') or not data.get('leg_name') or not data.get('mw_ip'):
         return jsonify({"error": "Missing required fields: link_id, leg_name, mw_ip"}), 400
     
@@ -200,6 +329,7 @@ def create_link():
     if existing:
         return jsonify({"error": f"Link ID {data['link_id']} already exists"}), 409
 
+    user_id = session.get('user_id')
     link = Link(
         link_id=data['link_id'],
         leg_name=data['leg_name'],
@@ -212,13 +342,28 @@ def create_link():
         # Per-link thresholds (Tier 3.2)
         util_warning_threshold_pct=data.get('util_warning_threshold_pct'),
         util_critical_threshold_pct=data.get('util_critical_threshold_pct'),
+        created_by_id=user_id
     )
     db.session.add(link)
+    db.session.flush()
+
+    # Process any attached Visio or PDF files (required)
+    try:
+        saved_files = _process_uploaded_files(link.id, user_id=user_id)
+    except ValueError as val_err:
+        db.session.rollback()
+        return jsonify({"error": str(val_err)}), 400
+
+    if not saved_files or len(saved_files) == 0:
+        db.session.rollback()
+        return jsonify({"error": "Link diagram attachment is required. Please attach a Visio (.vsd, .vsdx) or PDF file."}), 400
+
     db.session.commit()
+
 
     # Audit log: link created (Tier 2.4)
     write_log('links', 'link_created', session.get('username', 'system'), link.link_id,
-              {'leg_name': link.leg_name, 'mw_ip': link.mw_ip}, ip_address=request.remote_addr)
+              {'leg_name': link.leg_name, 'mw_ip': link.mw_ip, 'attachments': len(saved_files)}, ip_address=request.remote_addr)
     
     # Fetch initial data from external DB
     try:
@@ -357,14 +502,14 @@ def update_link(id):
     link = db.session.get(Link, id)
     if not link:
         return jsonify({'error': 'Link not found'}), 404
-    data = request.get_json()
+    data = _extract_link_payload()
     
-    if 'link_id' in data:
+    if 'link_id' in data and data['link_id']:
         if data['link_id'] != link.link_id and Link.query.filter_by(link_id=data['link_id']).first():
             return jsonify({"error": f"Link ID {data['link_id']} already exists"}), 409
         link.link_id = data['link_id']
 
-    if 'mw_ip' in data:
+    if 'mw_ip' in data and data['mw_ip']:
         if not validate_ipv4(data['mw_ip']):
             return jsonify({"error": "Invalid IPv4 address format"}), 400
         link.mw_ip = data['mw_ip']
@@ -381,7 +526,21 @@ def update_link(id):
     if 'util_critical_threshold_pct' in data:
         link.util_critical_threshold_pct = data['util_critical_threshold_pct']
 
+    user_id = session.get('user_id')
+    # Process any attached Visio or PDF files
+    try:
+        saved_files = _process_uploaded_files(link.id, user_id=user_id)
+    except ValueError as val_err:
+        db.session.rollback()
+        return jsonify({"error": str(val_err)}), 400
+
+    # Ensure link has at least 1 diagram attachment
+    if link.attachments.count() == 0 and (not saved_files or len(saved_files) == 0):
+        db.session.rollback()
+        return jsonify({"error": "Link diagram attachment is required. Please attach a Visio (.vsd, .vsdx) or PDF file."}), 400
+
     db.session.commit()
+
 
     # Refresh data from external DB in case link_id or leg_name changed
     try:
@@ -391,6 +550,93 @@ def update_link(id):
         logger.warning(f"Failed to refresh external status for {link.link_id}: {e}")
 
     return jsonify(serialize_link(link)), 200
+
+@links_bp.route('/<int:id>/attachments', methods=['POST'])
+@login_required
+@require_permission('links.edit')
+def upload_attachment(id):
+    link = db.session.get(Link, id)
+    if not link:
+        return jsonify({'error': 'Link not found'}), 404
+        
+    user_id = session.get('user_id')
+    try:
+        saved_files = _process_uploaded_files(link.id, user_id=user_id)
+    except ValueError as val_err:
+        return jsonify({"error": str(val_err)}), 400
+
+    if not saved_files:
+        return jsonify({'error': 'No file uploaded or selected'}), 400
+
+    db.session.commit()
+    write_log('links', 'attachment_uploaded', session.get('username', 'system'), link.link_id,
+              {'count': len(saved_files), 'filenames': [a.original_filename for a in saved_files]}, ip_address=request.remote_addr)
+
+    return jsonify({
+        'message': f'Uploaded {len(saved_files)} attachment(s)',
+        'link': serialize_link(link)
+    }), 201
+
+@links_bp.route('/<int:id>/attachments/<int:attachment_id>/download', methods=['GET'])
+@login_required
+@require_permission('links.view')
+def download_attachment(id, attachment_id):
+    link = db.session.get(Link, id)
+    if not link:
+        return jsonify({'error': 'Link not found'}), 404
+        
+    att = db.session.get(LinkAttachment, attachment_id)
+    if not att or att.link_id != id:
+        return jsonify({'error': 'Attachment not found'}), 404
+        
+    upload_dir = current_app.config.get('UPLOAD_FOLDER', os.path.join(current_app.config.get('APP_ROOT', '.'), 'data', 'uploads', 'attachments'))
+    file_path = os.path.join(upload_dir, att.filename)
+    if not os.path.exists(file_path):
+        return jsonify({'error': 'Attachment file missing from storage'}), 404
+        
+    is_view = request.args.get('view') in ('1', 'true', 'yes')
+    as_attachment = not is_view
+    
+    mimetype, _ = mimetypes.guess_type(att.original_filename)
+    if not mimetype:
+        if att.original_filename.lower().endswith('.pdf'):
+            mimetype = 'application/pdf'
+        elif att.original_filename.lower().endswith(('.vsd', '.vsdx')):
+            mimetype = 'application/vnd.visio'
+        else:
+            mimetype = 'application/octet-stream'
+
+    return send_from_directory(
+        upload_dir,
+        att.filename,
+        as_attachment=as_attachment,
+        download_name=att.original_filename,
+        mimetype=mimetype
+    )
+
+@links_bp.route('/<int:id>/attachments/<int:attachment_id>', methods=['DELETE'])
+@login_required
+@require_permission('links.edit')
+def delete_attachment(id, attachment_id):
+    link = db.session.get(Link, id)
+    if not link:
+        return jsonify({'error': 'Link not found'}), 404
+        
+    att = db.session.get(LinkAttachment, attachment_id)
+    if not att or att.link_id != id:
+        return jsonify({'error': 'Attachment not found'}), 404
+        
+    orig_name = att.original_filename
+    stored_name = att.filename
+    db.session.delete(att)
+    db.session.commit()
+    
+    remove_attachment_file_from_disk(stored_name)
+    
+    write_log('links', 'attachment_deleted', session.get('username', 'system'), link.link_id,
+              {'filename': orig_name}, ip_address=request.remote_addr)
+              
+    return jsonify({'message': 'Attachment deleted', 'link': serialize_link(link)}), 200
 
 @links_bp.route('/<int:id>', methods=['DELETE'])
 @login_required
@@ -402,6 +648,12 @@ def delete_link(id):
     link_id = link.link_id
     leg_name = link.leg_name
     mw_ip = link.mw_ip
+    
+    # Clean up attachment files on disk
+    if hasattr(link, 'attachments'):
+        for att in link.attachments.all():
+            remove_attachment_file_from_disk(att.filename)
+
     db.session.delete(link)
     db.session.commit()
 
@@ -410,6 +662,7 @@ def delete_link(id):
               {'leg_name': leg_name, 'mw_ip': mw_ip}, ip_address=request.remote_addr)
 
     return jsonify({"message": "Link deleted", "link_id": link_id}), 200
+
 
 @links_bp.route('/<int:id>/ping', methods=['POST'])
 @login_required

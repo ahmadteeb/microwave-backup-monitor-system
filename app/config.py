@@ -77,3 +77,10 @@ class Config:
 
     # Flask-Limiter
     RATELIMIT_HEADERS_ENABLED = True
+
+    # Uploads & Attachments
+    APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    UPLOAD_FOLDER = os.path.join(APP_ROOT, 'data', 'uploads', 'attachments')
+    MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 50 * 1024 * 1024))  # 50 MB
+    ALLOWED_ATTACHMENT_EXTENSIONS = {'pdf', 'vsd', 'vsdx', 'vssx', 'vstx'}
+

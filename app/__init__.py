@@ -42,8 +42,15 @@ def create_app(config_class=Config):
     global APP_START_TIME
     APP_START_TIME = datetime.utcnow()
 
+    # Ensure upload directory exists
+    upload_folder = app.config.get('UPLOAD_FOLDER')
+    if upload_folder:
+        os.makedirs(upload_folder, exist_ok=True)
+
     with app.app_context():
-        db.create_all()
+        from app.services.migration_service import run_auto_migrations
+        run_auto_migrations(db, app=app)
+
         
         # Seed SetupState
         if not db.session.get(SetupState, 1):

@@ -465,15 +465,21 @@ tr:hover {
   color: #fff;
 }
 
+.action-btns {
+  text-align: center;
+  white-space: nowrap;
+}
+
 .action-btns i {
   color: var(--text-secondary);
-  margin-right: 12px;
+  margin: 0 6px;
   cursor: pointer;
-  transition: color 0.2s;
+  transition: color 0.2s, transform 0.15s;
 }
 
 .action-btns i:hover {
   color: var(--text-primary);
+  transform: scale(1.15);
 }
 
 .table-footer {
@@ -2338,3 +2344,335 @@ tr {
 .btn-secondary:hover {
   background: rgba(255, 255, 255, 0.05);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* Link Attachments & Diagrams (Visio & PDF)                                   */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+.attachment-dropzone {
+  border: 2px dashed rgba(0, 212, 170, 0.35);
+  background: rgba(0, 212, 170, 0.03);
+  border-radius: 8px;
+  padding: 24px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  margin-top: 8px;
+}
+
+.attachment-dropzone:hover,
+.attachment-dropzone.drag-active {
+  border-color: var(--accent-teal, #00d4aa);
+  background: rgba(0, 212, 170, 0.09);
+  box-shadow: 0 0 15px rgba(0, 212, 170, 0.15);
+}
+
+.attachment-dropzone.error {
+  border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.08) !important;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.2) !important;
+}
+
+
+.dropzone-icon {
+  font-size: 28px;
+  color: var(--accent-teal, #00d4aa);
+  margin-bottom: 8px;
+  display: block;
+}
+
+.dropzone-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #ffffff);
+  margin-bottom: 4px;
+}
+
+.dropzone-subtext {
+  font-size: 11px;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.attachment-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  padding: 10px 14px;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.attachment-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(0, 212, 170, 0.4);
+}
+
+.attachment-icon-wrapper {
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+}
+
+.attachment-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.attachment-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #ffffff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.attachment-submeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.attachment-type-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.badge-pdf {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.badge-visio {
+  background: rgba(0, 212, 170, 0.18);
+  color: #00d4aa;
+  border: 1px solid rgba(0, 212, 170, 0.35);
+}
+
+.badge-file {
+  background: rgba(148, 163, 184, 0.18);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.attachment-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.attachment-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  color: var(--text-secondary, #94a3b8);
+  cursor: pointer;
+  text-decoration: none;
+  font-size: 13px;
+  transition: all 0.15s ease;
+}
+
+.attachment-action-btn:hover {
+  background: rgba(0, 212, 170, 0.15);
+  border-color: var(--accent-teal, #00d4aa);
+  color: var(--accent-teal, #00d4aa);
+}
+
+.attachment-action-btn.delete-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+/* Staged Attachments List (Add/Edit link form) */
+.staged-attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.staged-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent-teal, #00d4aa);
+  margin-bottom: 2px;
+}
+
+.staged-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 212, 170, 0.05);
+  border: 1px solid rgba(0, 212, 170, 0.2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.staged-file-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.staged-file-name {
+  color: var(--text-primary, #ffffff);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.staged-file-size {
+  color: var(--text-secondary, #94a3b8);
+  font-size: 11px;
+}
+
+.staged-file-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #94a3b8);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+}
+
+.staged-file-remove:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+/* Table Attachment Badges & Column */
+.col-diagram {
+  min-width: 140px;
+  max-width: 180px;
+  white-space: nowrap;
+}
+
+.table-diag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  border: 1px solid transparent;
+}
+
+.table-diag-badge.pdf {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.table-diag-badge.pdf i:first-child {
+  color: #ef4444;
+}
+
+.table-diag-badge.pdf:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: #ef4444;
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+}
+
+.table-diag-badge.visio {
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+.table-diag-badge.visio i:first-child {
+  color: #3b82f6;
+}
+
+.table-diag-badge.visio:hover {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: #3b82f6;
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.table-diag-name {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-diag-dl {
+  font-size: 10px;
+  opacity: 0.7;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.table-diag-badge:hover .table-diag-dl {
+  opacity: 1;
+  transform: translateY(1px);
+}
+
+.text-pdf {
+  color: #ef4444 !important;
+}
+
+.text-pdf:hover {
+  color: #f87171 !important;
+}
+
+.action-btns a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  margin: 0 6px;
+  vertical-align: middle;
+}
+
+.action-btns a i {
+  margin: 0;
+  transition: transform 0.15s ease;
+}
+
+.action-btns a:hover i {
+  transform: scale(1.15);
+}

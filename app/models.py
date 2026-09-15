@@ -22,6 +22,18 @@ class Link(db.Model):
 
     ping_results = db.relationship('PingResult', backref='link', lazy='dynamic', cascade='all, delete-orphan')
     status = db.relationship('LinkStatus', backref='link', uselist=False, cascade='all, delete-orphan')
+    attachments = db.relationship('LinkAttachment', backref='link', lazy='dynamic', cascade='all, delete-orphan', order_by='LinkAttachment.uploaded_at.desc()')
+
+class LinkAttachment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    link_id = db.Column(db.Integer, db.ForeignKey('link.id'), nullable=False, index=True)
+    filename = db.Column(db.String(255), nullable=False)
+    original_filename = db.Column(db.String(255), nullable=False)
+    file_type = db.Column(db.String(50), nullable=False, default='other')
+    file_size = db.Column(db.Integer, nullable=False, default=0)
+    uploaded_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    uploaded_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
 
 class PingResult(db.Model):
     id = db.Column(db.Integer, primary_key=True)

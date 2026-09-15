@@ -24,6 +24,8 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+window.escapeHtml = escapeHtml;
+
 
 function truncateText(s, n = 18) {
   if (!s) return '';
@@ -55,17 +57,17 @@ function handleLinkStatusUpdate(update) {
   // Try to update the matching row in-place without a full re-fetch
   const rows = tableBody.querySelectorAll('tr');
   for (const row of rows) {
-    const linkIdCell = row.querySelector('td:first-child');
-    if (linkIdCell && linkIdCell.textContent === update.link_id) {
+    const linkIdCell = row.querySelector('.col-link-id');
+    if (linkIdCell && linkIdCell.textContent.trim() === update.link_id) {
       // Update status badge
-      const statusCell = row.querySelector('.status-badge');
+      const statusCell = row.querySelector('.col-status .status-badge');
       if (statusCell) {
         statusCell.className = `status-badge ${update.status.toLowerCase()}`;
         statusCell.textContent = update.status;
       }
 
       // Update latency
-      const latencyCell = row.querySelector('td:nth-child(11)');
+      const latencyCell = row.querySelector('.col-latency');
       if (latencyCell) {
         latencyCell.innerHTML = update.latency_ms !== null
           ? `<span class="text-teal">${update.latency_ms}ms</span>`
@@ -74,10 +76,10 @@ function handleLinkStatusUpdate(update) {
 
       // Update utilization bars
       if (update.latest_metric) {
-        const legCell = row.querySelector('td:nth-child(5)');
-        const mwCell = row.querySelector('td:nth-child(6)');
-        const legCapCell = row.querySelector('td:nth-child(7)');
-        const capCell = row.querySelector('td:nth-child(9)');
+        const legCell = row.querySelector('.col-leg-util');
+        const mwCell = row.querySelector('.col-mw-util');
+        const legCapCell = row.querySelector('.col-leg-cap');
+        const capCell = row.querySelector('.col-link-cap');
         if (legCell) {
           const legPct = update.latest_metric.leg_util_pct ?? 0;
           legCell.innerHTML = createUtilBar(legPct, getBarColor(legPct));
@@ -148,23 +150,41 @@ function renderTable(links) {
     const siteADisplay = siteAFull ? truncateText(siteAFull, 18) : '';
     const siteBDisplay = siteBFull ? truncateText(siteBFull, 18) : '';
 
+    const att = (link.attachments && link.attachments.length > 0) ? link.attachments[0] : link.attachment;
+
     tr.innerHTML = `
-      <td class="text-mono text-teal">${escapeHtml(link.link_id)}</td>
-      <td>${escapeHtml(link.leg_name || '')}</td>
-      <td class="col-site"><div class="truncate" title="${escapeHtml(siteAFull)}">${siteAFull ? escapeHtml(siteADisplay) : '<span class="text-muted">—</span>'}</div></td>
-      <td class="col-site"><div class="truncate" title="${escapeHtml(siteBFull)}">${siteBFull ? escapeHtml(siteBDisplay) : '<span class="text-muted">—</span>'}</div></td>
-      <td>${legBar}</td>
-      <td>${mwBar}</td>
-      <td>${legCapacityBar}</td>
-      <td class="text-mono">${legBitrateDisplay}</td>
-      <td>${capacityDisplay}</td>
-      <td>${statusHtml}</td>
-      <td class="text-mono">${latencyHtml}</td>
+      <td class="col-link-id text-mono text-teal">${escapeHtml(link.link_id)}</td>
+      <td class="col-leg">${escapeHtml(link.leg_name || '')}</td>
+      <td class="col-site col-site-a"><div class="truncate" title="${escapeHtml(siteAFull)}">${siteAFull ? escapeHtml(siteADisplay) : '<span class="text-muted">—</span>'}</div></td>
+      <td class="col-site col-site-b"><div class="truncate" title="${escapeHtml(siteBFull)}">${siteBFull ? escapeHtml(siteBDisplay) : '<span class="text-muted">—</span>'}</div></td>
+      <td class="col-leg-util">${legBar}</td>
+      <td class="col-mw-util">${mwBar}</td>
+      <td class="col-leg-cap">${legCapacityBar}</td>
+      <td class="col-leg-bitrate text-mono">${legBitrateDisplay}</td>
+      <td class="col-link-cap">${capacityDisplay}</td>
+      <td class="col-status">${statusHtml}</td>
+      <td class="col-latency text-mono">${latencyHtml}</td>
     `;
 
     const actionCell = document.createElement('td');
     actionCell.className = 'action-btns';
-    actionCell.style.textAlign = 'right';
+    actionCell.style.textAlign = 'center';
+
+    if (att) {
+      const isPdf = att.is_pdf || (att.filename && att.filename.toLowerCase().endsWith('.pdf'));
+      const isVisio = att.is_visio || (att.filename && (att.filename.toLowerCase().endsWith('.vsd') || att.filename.toLowerCase().endsWith('.vsdx')));
+      const prefix = window.APP_PREFIX || '';
+      const downloadUrl = `${prefix}/api/links/${link.id}/attachments/${att.id}/download`;
+
+      const dlLink = document.createElement('a');
+      dlLink.href = downloadUrl;
+      dlLink.download = att.filename || 'diagram';
+      dlLink.title = `Download Diagram (${escapeHtml(att.filename)})`;
+      dlLink.className = 'action-dl-btn';
+      dlLink.innerHTML = `<i class="fa-solid fa-file-arrow-down ${isPdf ? 'text-pdf' : 'text-teal'}" style="cursor: pointer;"></i>`;
+      dlLink.addEventListener('click', (e) => e.stopPropagation());
+      actionCell.appendChild(dlLink);
+    }
 
     const pingBtn = document.createElement('i');
     pingBtn.className = 'fa-solid fa-satellite-dish';
