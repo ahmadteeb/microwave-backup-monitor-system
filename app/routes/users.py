@@ -109,11 +109,11 @@ def update_user(id):
     data = request.get_json() or {}
     updates = {}
 
-    if data.get('full_name') and data['full_name'] != user.full_name:
+    if data.get('full_name') and data['full_name'].strip() != user.full_name:
         updates['full_name'] = [user.full_name, data['full_name'].strip()]
         user.full_name = data['full_name'].strip()
-    if data.get('email') and data['email'] != user.email:
-        if User.query.filter(User.email == data['email'], User.id != id).first():
+    if data.get('email') and data['email'].strip() != user.email:
+        if User.query.filter(User.email == data['email'].strip(), User.id != id).first():
             return jsonify({'error': 'Email already exists'}), 409
         updates['email'] = [user.email, data['email'].strip()]
         user.email = data['email'].strip()
@@ -148,6 +148,16 @@ def update_user(id):
         updates['force_password_change'] = [user.force_password_change, data['force_password_change']]
         user.force_password_change = bool(data['force_password_change'])
 
+    # Allow password modification during user edit if provided
+    if data.get('password'):
+        new_pw = str(data['password']).strip()
+        if len(new_pw) < 8:
+            return jsonify({'error': 'Password must be at least 8 characters'}), 400
+        user.password_hash = bcrypt.generate_password_hash(new_pw).decode('utf-8')
+        updates['password'] = ['******', '******']
+        write_log('auth', 'password_reset', session.get('username', 'system'), user.username,
+                  {'by_admin': True}, ip_address=request.remote_addr)
+
     db.session.commit()
     if updates:
         write_log('users', 'user_edited', session.get('username', 'system'), user.username,
@@ -166,6 +176,23 @@ def delete_user(id):
         return jsonify({'error': 'Cannot delete own account'}), 400
     username = user.username
     role = user.role
+
+    # Clean up foreign key references where nullable=True or dependent tables
+    from app.models import (
+        Link, LinkAttachment, PingResult, JumpServer,
+        SmtpConfig, AppSettings, ExternalDbConfig,
+        InAppNotification
+    )
+    Link.query.filter_by(created_by_id=user.id).update({'created_by_id': None})
+    LinkAttachment.query.filter_by(uploaded_by_id=user.id).update({'uploaded_by_id': None})
+    PingResult.query.filter_by(triggered_by_user_id=user.id).update({'triggered_by_user_id': None})
+    JumpServer.query.filter_by(updated_by_id=user.id).update({'updated_by_id': None})
+    SmtpConfig.query.filter_by(updated_by_id=user.id).update({'updated_by_id': None})
+    AppSettings.query.filter_by(updated_by_id=user.id).update({'updated_by_id': None})
+    ExternalDbConfig.query.filter_by(updated_by_id=user.id).update({'updated_by_id': None})
+    NotificationSubscription.query.filter_by(user_id=user.id).delete()
+    InAppNotification.query.filter_by(user_id=user.id).delete()
+
     db.session.delete(user)
     db.session.commit()
 

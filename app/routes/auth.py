@@ -12,9 +12,8 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 def _build_permissions(user_id):
     permissions = {}
     user = db.session.get(User, user_id) if user_id else None
-    role = user.role if user else 'viewer'
-    defaults = ROLE_DEFAULTS.get(role, {})
-    for key in defaults:
+    all_keys = list(ROLE_DEFAULTS.get('admin', {}).keys())
+    for key in all_keys:
         permissions[key] = has_permission(user_id, key)
     return permissions
 

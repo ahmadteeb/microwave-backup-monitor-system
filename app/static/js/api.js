@@ -13,6 +13,16 @@ window.fetchAPI = async function(url, options = {}) {
   return response.json();
 };
 
+window.escapeHtml = function(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
 // WebSocket connection via Socket.IO
 (function initSocket() {
   function connect() {

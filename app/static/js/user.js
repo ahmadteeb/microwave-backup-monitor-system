@@ -1,20 +1,4 @@
-// Shared API Helper
-async function fetchAPI(url, options = {}) {
-  if (window.APP_PREFIX && url.startsWith('/')) {
-    url = window.APP_PREFIX + url;
-  }
-  try {
-    const response = await fetch(url, options);
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP error ${response.status}`);
-    }
-    return await response.json();
-  } catch (error) {
-    console.error(`API Error on ${url}:`, error);
-    throw error;
-  }
-}
+// ── User & Auth System ─────────────────────────────────────────────────────────
 
 // ── DOM Elements ──────────────────────────────────────────────────────────────
 const userMenuBtn = document.getElementById('user-menu-btn');
@@ -43,6 +27,7 @@ const usersTableBody = document.getElementById('users-table-body');
 
 let forcePasswordChangeRequired = false;
 let currentUser = null;
+let userInfoPromise = null;
 
 // ── Permission labels ─────────────────────────────────────────────────────────
 const PERMISSION_LABELS = {
@@ -64,6 +49,9 @@ const PERMISSION_GROUPS = {
   'Logs': ['logs.view_system','logs.view_ping','logs.export'],
   'Notifications': ['notifications.view_own','notifications.edit_own','notifications.manage_all']
 };
+
+window.PERMISSION_LABELS = PERMISSION_LABELS;
+window.PERMISSION_GROUPS = PERMISSION_GROUPS;
 
 // ── Section navigation ────────────────────────────────────────────────────────
 function showSection(sectionName) {
@@ -114,7 +102,7 @@ async function handleChangePassword(event) {
   if (!forcePasswordChangeRequired && !cur) { showChangePasswordError('Current password is required.'); return; }
   if (window.setButtonLoading) window.setButtonLoading(btnSaveChangePassword, true, 'UPDATING...');
   try {
-    await fetchAPI('/api/auth/change-password', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    await window.fetchAPI('/api/auth/change-password', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ current_password: cur, new_password: np, confirm_password: cp }) });
     if (window.showToast) window.showToast('Password updated successfully.', 'success');
     forcePasswordChangeRequired = false;
@@ -125,16 +113,31 @@ async function handleChangePassword(event) {
 
 // ── Load user info ────────────────────────────────────────────────────────────
 async function loadUserInfo() {
-  try {
-    const data = await fetchAPI('/api/auth/me');
-    currentUser = data;
-    userName.textContent = currentUser.full_name || currentUser.username;
-    userRole.textContent = currentUser.role || 'Administrator';
-    if (currentUser.force_password_change) { showChangePasswordModal(true); showSection('dashboard'); }
-  } catch (error) {
-    console.error('Failed to load user info', error);
-    userName.textContent = 'Unknown User'; userRole.textContent = 'User';
+  if (currentUser) {
+    window.currentUser = currentUser;
+    return currentUser;
   }
+  if (!userInfoPromise) {
+    userInfoPromise = (async () => {
+      try {
+        const data = await window.fetchAPI('/api/auth/me');
+        currentUser = data;
+        window.currentUser = data;
+        if (userName) userName.textContent = currentUser.full_name || currentUser.username;
+        if (userRole) userRole.textContent = currentUser.role ? currentUser.role.toUpperCase() : 'ADMINISTRATOR';
+        if (currentUser.force_password_change) { showChangePasswordModal(true); showSection('dashboard'); }
+        return currentUser;
+      } catch (error) {
+        console.error('Failed to load user info', error);
+        if (userName) userName.textContent = 'Unknown User';
+        if (userRole) userRole.textContent = 'User';
+        return null;
+      } finally {
+        userInfoPromise = null;
+      }
+    })();
+  }
+  return userInfoPromise;
 }
 
 // ── System Logs ───────────────────────────────────────────────────────────────
@@ -142,16 +145,17 @@ async function loadSystemLogs() {
   if (!logsTableBody) return;
   logsTableBody.innerHTML = '<tr><td colspan="6">Loading logs...</td></tr>';
   try {
-    const data = await fetchAPI('/api/logs/system?per_page=50');
+    const data = await window.fetchAPI('/api/logs/system?per_page=50');
     if (!data.logs || data.logs.length === 0) { logsTableBody.innerHTML = '<tr><td colspan="6">No logs available</td></tr>'; return; }
+    const esc = window.escapeHtml || ((s) => s);
     logsTableBody.innerHTML = data.logs.map(log => `
       <tr>
         <td>${new Date(log.timestamp).toLocaleString()}</td>
-        <td>${log.category || ''}</td>
-        <td>${log.event || ''}</td>
-        <td>${log.actor || ''}</td>
-        <td>${log.target || ''}</td>
-        <td>${log.detail || ''}</td>
+        <td>${esc(log.category || '')}</td>
+        <td>${esc(log.event || '')}</td>
+        <td>${esc(log.actor || '')}</td>
+        <td>${esc(log.target || '')}</td>
+        <td>${esc(log.detail || '')}</td>
       </tr>
     `).join('');
   } catch (error) { logsTableBody.innerHTML = '<tr><td colspan="6">Unable to load logs.</td></tr>'; }
@@ -167,37 +171,113 @@ function _statusBadge(status) {
   if (status === 'Locked') return '<span class="status-badge status-locked">Locked</span>';
   return '<span class="status-badge status-inactive">Inactive</span>';
 }
-function _canDo(perm) { return currentUser && currentUser.permissions && currentUser.permissions[perm]; }
+function _canDo(perm) {
+  if (!currentUser) return false;
+  if (currentUser.role === 'admin') return true;
+  return !!(currentUser.permissions && currentUser.permissions[perm]);
+}
+
+let allUsersList = [];
+
+function renderUsersTable() {
+  if (!usersTableBody) return;
+  const esc = window.escapeHtml || ((s) => s);
+  const searchInput = document.getElementById('users-search-input');
+  const roleFilter = document.getElementById('users-role-filter');
+  const statusFilter = document.getElementById('users-status-filter');
+  const countBadge = document.getElementById('users-count-badge');
+
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  const selectedRole = roleFilter ? roleFilter.value : 'ALL';
+  const selectedStatus = statusFilter ? statusFilter.value : 'ALL';
+
+  const filtered = allUsersList.filter(user => {
+    if (selectedRole !== 'ALL' && (user.role || '').toLowerCase() !== selectedRole.toLowerCase()) {
+      return false;
+    }
+    if (selectedStatus !== 'ALL' && user.status !== selectedStatus) {
+      return false;
+    }
+    if (query) {
+      const matchName = (user.full_name || '').toLowerCase().includes(query);
+      const matchUser = (user.username || '').toLowerCase().includes(query);
+      const matchEmail = (user.email || '').toLowerCase().includes(query);
+      const matchRole = (user.role || '').toLowerCase().includes(query);
+      if (!matchName && !matchUser && !matchEmail && !matchRole) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if (countBadge) {
+    if (filtered.length !== allUsersList.length) {
+      countBadge.textContent = `${filtered.length} OF ${allUsersList.length} TOTAL`;
+    } else {
+      countBadge.textContent = `${allUsersList.length} TOTAL`;
+    }
+  }
+
+  if (filtered.length === 0) {
+    usersTableBody.innerHTML = '<tr><td colspan="7" class="text-muted" style="text-align: center; padding: 24px;">No matching users found</td></tr>';
+    return;
+  }
+
+  usersTableBody.innerHTML = filtered.map(user => {
+    let actions = '';
+    if (_canDo('users.edit'))
+      actions += `<button class="btn-icon-sm" title="Edit" onclick="openEditUserModal(${user.id})"><i class="fa-solid fa-pen"></i></button>`;
+    if (_canDo('users.reset_password'))
+      actions += `<button class="btn-icon-sm" title="Reset Password" onclick="openResetPasswordModal(${user.id}, '${esc(user.username)}')"><i class="fa-solid fa-key"></i></button>`;
+
+    if (user.is_locked && _canDo('users.edit'))
+      actions += `<button class="btn-icon-sm btn-icon-warning" title="Unlock" onclick="unlockUser(${user.id})"><i class="fa-solid fa-lock-open"></i></button>`;
+    if (_canDo('users.delete') && (!currentUser || user.id !== currentUser.id))
+      actions += `<button class="btn-icon-sm btn-icon-danger" title="Delete" onclick="deleteUser(${user.id}, '${esc(user.username)}')"><i class="fa-solid fa-trash"></i></button>`;
+    if (!actions) actions = '<span class="text-muted">—</span>';
+    return `<tr>
+      <td>${esc(user.full_name)}</td>
+      <td class="text-mono text-secondary">${esc(user.username)}</td>
+      <td>${esc(user.email)}</td>
+      <td><span class="role-badge ${_roleBadgeClass(user.role)}">${esc((user.role || '').toUpperCase())}</span></td>
+      <td>${_statusBadge(user.status)}</td>
+      <td>${user.last_login_at ? new Date(user.last_login_at).toLocaleString() : '<span class="text-muted">Never</span>'}</td>
+      <td style="text-align: right;">${actions}</td>
+    </tr>`;
+  }).join('');
+}
 
 async function loadUsers() {
   if (!usersTableBody) return;
   usersTableBody.innerHTML = '<tr><td colspan="7">Loading users...</td></tr>';
   try {
-    const data = await fetchAPI('/api/users');
-    if (!data.users || data.users.length === 0) { usersTableBody.innerHTML = '<tr><td colspan="7">No users found</td></tr>'; return; }
-    usersTableBody.innerHTML = data.users.map(user => {
-      let actions = '';
-      if (_canDo('users.edit'))
-        actions += `<button class="btn-icon-sm" title="Edit" onclick="openEditUserModal(${user.id})"><i class="fa-solid fa-pen"></i></button>`;
-      if (_canDo('users.reset_password'))
-        actions += `<button class="btn-icon-sm" title="Reset Password" onclick="openResetPasswordModal(${user.id}, '${user.username}')"><i class="fa-solid fa-key"></i></button>`;
+    if (!currentUser) {
+      await loadUserInfo();
+    }
+    const [userData, rolesData] = await Promise.all([
+      window.fetchAPI('/api/users'),
+      window.fetchAPI('/api/roles').catch(() => ({ roles: [] }))
+    ]);
 
-      if (user.is_locked && _canDo('users.edit'))
-        actions += `<button class="btn-icon-sm btn-icon-warning" title="Unlock" onclick="unlockUser(${user.id})"><i class="fa-solid fa-lock-open"></i></button>`;
-      if (_canDo('users.delete') && user.id !== currentUser.id)
-        actions += `<button class="btn-icon-sm btn-icon-danger" title="Delete" onclick="deleteUser(${user.id}, '${user.username}')"><i class="fa-solid fa-trash"></i></button>`;
-      if (!actions) actions = '<span class="text-muted">—</span>';
-      return `<tr>
-        <td>${user.full_name}</td>
-        <td class="text-mono text-secondary">${user.username}</td>
-        <td>${user.email}</td>
-        <td><span class="role-badge ${_roleBadgeClass(user.role)}">${user.role.toUpperCase()}</span></td>
-        <td>${_statusBadge(user.status)}</td>
-        <td>${user.last_login_at ? new Date(user.last_login_at).toLocaleString() : '<span class="text-muted">Never</span>'}</td>
-        <td style="text-align: right;">${actions}</td>
-      </tr>`;
-    }).join('');
-  } catch (error) { usersTableBody.innerHTML = '<tr><td colspan="7">Unable to load users.</td></tr>'; }
+    allUsersList = userData.users || [];
+
+    // Populate role filter dropdown if present
+    const roleFilter = document.getElementById('users-role-filter');
+    if (roleFilter && rolesData.roles && rolesData.roles.length > 0) {
+      const currentVal = roleFilter.value;
+      const esc = window.escapeHtml || ((s) => s);
+      let optionsHtml = '<option value="ALL">All Roles</option>';
+      rolesData.roles.forEach(r => {
+        optionsHtml += `<option value="${esc(r.name)}" ${currentVal === r.name ? 'selected' : ''}>${esc(r.name.toUpperCase())}</option>`;
+      });
+      roleFilter.innerHTML = optionsHtml;
+    }
+
+    renderUsersTable();
+  } catch (error) {
+    const esc = window.escapeHtml || ((s) => s);
+    usersTableBody.innerHTML = '<tr><td colspan="7">Unable to load users: ' + esc(error.message) + '</td></tr>';
+  }
 }
 
 // ── User Modal (Create / Edit) ────────────────────────────────────────────────
@@ -207,9 +287,10 @@ function _hideUserModal() { document.getElementById('user-modal').classList.remo
 async function _populateRolesSelect() {
   const select = document.getElementById('user-modal-role');
   try {
-    const data = await fetchAPI('/api/roles');
+    const data = await window.fetchAPI('/api/roles');
+    const esc = window.escapeHtml || ((s) => s);
     if (data.roles) {
-      select.innerHTML = data.roles.map(r => `<option value="${r.name}">${r.name.toUpperCase()}</option>`).join('');
+      select.innerHTML = data.roles.map(r => `<option value="${esc(r.name)}">${esc(r.name.toUpperCase())}</option>`).join('');
     }
   } catch (error) {
     select.innerHTML = '<option value="">Error loading roles</option>';
@@ -226,7 +307,11 @@ async function openCreateUserModal() {
   document.getElementById('user-modal-email').value = '';
   document.getElementById('user-modal-role').value = 'admin';
   document.getElementById('user-modal-password').value = '';
-  document.getElementById('user-modal-password-group').classList.remove('hidden');
+  document.getElementById('user-modal-password').placeholder = 'Enter password (min 8 chars)';
+  const pwLabel = document.getElementById('user-modal-password-label');
+  if (pwLabel) pwLabel.textContent = 'Password';
+  const pwHelper = document.getElementById('user-modal-password-helper');
+  if (pwHelper) pwHelper.textContent = 'Default: ChangeMe123! if blank';
   document.getElementById('user-modal-active').checked = true;
   document.getElementById('user-modal-force-pw').checked = true;
   document.getElementById('user-modal-error').classList.add('hidden');
@@ -236,7 +321,7 @@ async function openCreateUserModal() {
 async function openEditUserModal(userId) {
   try {
     const [userData, _] = await Promise.all([
-      fetchAPI(`/api/users/${userId}`),
+      window.fetchAPI(`/api/users/${userId}`),
       _populateRolesSelect()
     ]);
     const u = userData.user;
@@ -248,7 +333,11 @@ async function openEditUserModal(userId) {
     document.getElementById('user-modal-email').value = u.email;
     document.getElementById('user-modal-role').value = u.role;
     document.getElementById('user-modal-password').value = '';
-    document.getElementById('user-modal-password-group').classList.add('hidden');
+    document.getElementById('user-modal-password').placeholder = 'Leave blank to keep existing password';
+    const pwLabel = document.getElementById('user-modal-password-label');
+    if (pwLabel) pwLabel.textContent = 'New Password (optional)';
+    const pwHelper = document.getElementById('user-modal-password-helper');
+    if (pwHelper) pwHelper.textContent = 'Leave blank to keep existing password';
     document.getElementById('user-modal-active').checked = u.is_active;
     document.getElementById('user-modal-force-pw').checked = u.force_password_change;
     document.getElementById('user-modal-error').classList.add('hidden');
@@ -262,6 +351,14 @@ async function saveUser() {
   errEl.classList.add('hidden');
   const id = document.getElementById('user-modal-id').value;
   const isEdit = !!id;
+  const pw = document.getElementById('user-modal-password').value.trim();
+
+  if (pw && pw.length < 8) {
+    errText.textContent = 'Password must be at least 8 characters.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
   const payload = {
     full_name: document.getElementById('user-modal-fullname').value.trim(),
     email: document.getElementById('user-modal-email').value.trim(),
@@ -269,51 +366,76 @@ async function saveUser() {
     is_active: document.getElementById('user-modal-active').checked,
     force_password_change: document.getElementById('user-modal-force-pw').checked
   };
+
+  if (pw) {
+    payload.password = pw;
+  }
+
   if (!isEdit) {
     payload.username = document.getElementById('user-modal-username').value.trim();
-    const pw = document.getElementById('user-modal-password').value;
-    if (pw) payload.password = pw;
   }
+
   if (!payload.full_name || !payload.email || (!isEdit && !payload.username)) {
-    errText.textContent = 'Please fill in all required fields.'; errEl.classList.remove('hidden'); return;
+    errText.textContent = 'Please fill in all required fields.';
+    errEl.classList.remove('hidden');
+    return;
   }
+
   const btn = document.getElementById('btn-save-user-modal');
   if (window.setButtonLoading) window.setButtonLoading(btn, true, 'SAVING...');
   try {
     if (isEdit) {
-      await fetchAPI(`/api/users/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      await window.fetchAPI(`/api/users/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       window.showToast('User updated successfully', 'success');
     } else {
-      await fetchAPI('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      await window.fetchAPI('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       window.showToast('User created successfully', 'success');
     }
-    _hideUserModal(); loadUsers();
-  } catch (error) { errText.textContent = error.message; errEl.classList.remove('hidden'); }
-  finally { if (window.setButtonLoading) window.setButtonLoading(btn, false); }
+    _hideUserModal();
+    loadUsers();
+  } catch (error) {
+    errText.textContent = error.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    if (window.setButtonLoading) window.setButtonLoading(btn, false);
+  }
 }
 
 async function deleteUser(userId, username) {
+  const esc = window.escapeHtml || ((s) => s);
   const confirmed = await window.showConfirm({
-    title: 'DELETE USER', message: `Are you sure you want to delete <strong>${username}</strong>?<br>This action cannot be undone.`,
-    confirmText: 'DELETE', cancelText: 'CANCEL', variant: 'danger'
+    title: 'DELETE USER',
+    message: `Are you sure you want to delete user <strong>${esc(username)}</strong>?<br>This action cannot be undone.`,
+    confirmText: 'DELETE',
+    cancelText: 'CANCEL',
+    variant: 'danger'
   });
   if (!confirmed) return;
   try {
-    await fetchAPI(`/api/users/${userId}`, { method: 'DELETE' });
-    window.showToast('User deleted', 'success'); loadUsers();
-  } catch (error) { window.showToast('Failed to delete user: ' + error.message, 'error'); }
+    await window.fetchAPI(`/api/users/${userId}`, { method: 'DELETE' });
+    window.showToast('User deleted successfully', 'success');
+    loadUsers();
+  } catch (error) {
+    window.showToast('Failed to delete user: ' + error.message, 'error');
+  }
 }
 
 async function unlockUser(userId) {
   const confirmed = await window.showConfirm({
-    title: 'UNLOCK USER', message: 'Unlock this user account and reset the failed login counter?',
-    confirmText: 'UNLOCK', cancelText: 'CANCEL', variant: 'warning'
+    title: 'UNLOCK USER',
+    message: 'Unlock this user account and reset the failed login counter?',
+    confirmText: 'UNLOCK',
+    cancelText: 'CANCEL',
+    variant: 'warning'
   });
   if (!confirmed) return;
   try {
-    await fetchAPI(`/api/users/${userId}/unlock`, { method: 'POST' });
-    window.showToast('User unlocked', 'success'); loadUsers();
-  } catch (error) { window.showToast('Failed to unlock user: ' + error.message, 'error'); }
+    await window.fetchAPI(`/api/users/${userId}/unlock`, { method: 'POST' });
+    window.showToast('User unlocked successfully', 'success');
+    loadUsers();
+  } catch (error) {
+    window.showToast('Failed to unlock user: ' + error.message, 'error');
+  }
 }
 
 // ── Reset Password Modal ──────────────────────────────────────────────────────
@@ -335,19 +457,25 @@ async function saveResetPassword() {
   const errText = document.getElementById('reset-pw-error-text');
   errEl.classList.add('hidden');
   const userId = document.getElementById('reset-pw-user-id').value;
-  const np = document.getElementById('reset-pw-new').value;
-  const cp = document.getElementById('reset-pw-confirm').value;
+  const np = document.getElementById('reset-pw-new').value.trim();
+  const cp = document.getElementById('reset-pw-confirm').value.trim();
   const force = document.getElementById('reset-pw-force').checked;
   if (!np || np.length < 8) { errText.textContent = 'Password must be at least 8 characters.'; errEl.classList.remove('hidden'); return; }
   if (np !== cp) { errText.textContent = 'Passwords do not match.'; errEl.classList.remove('hidden'); return; }
   const btn = document.getElementById('btn-save-reset-pw');
   if (window.setButtonLoading) window.setButtonLoading(btn, true, 'RESETTING...');
   try {
-    await fetchAPI(`/api/users/${userId}/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    await window.fetchAPI(`/api/users/${userId}/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ new_password: np, confirm_password: cp, force_password_change: force }) });
-    window.showToast('Password reset successfully', 'success'); _hideResetPwModal(); loadUsers();
-  } catch (error) { errText.textContent = error.message; errEl.classList.remove('hidden'); }
-  finally { if (window.setButtonLoading) window.setButtonLoading(btn, false); }
+    window.showToast('Password reset successfully', 'success');
+    _hideResetPwModal();
+    loadUsers();
+  } catch (error) {
+    errText.textContent = error.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    if (window.setButtonLoading) window.setButtonLoading(btn, false);
+  }
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────────
@@ -362,7 +490,7 @@ function handleNavClick(event) {
 function toggleUserDropdown() { userDropdown.classList.toggle('active'); }
 async function handleLogout(event) {
   event.preventDefault();
-  try { await fetchAPI('/api/auth/logout', { method: 'POST' }); } catch (error) {}
+  try { await window.fetchAPI('/api/auth/logout', { method: 'POST' }); } catch (error) {}
   window.location.href = window.APP_PREFIX + '/login';
 }
 
@@ -398,13 +526,40 @@ function attachEventListeners() {
   if (btnCloseRP) btnCloseRP.addEventListener('click', _hideResetPwModal);
   if (btnCancelRP) btnCancelRP.addEventListener('click', _hideResetPwModal);
   if (btnSaveRP) btnSaveRP.addEventListener('click', saveResetPassword);
-  const rpModal = document.getElementById('reset-password-modal');
-  if (rpModal) rpModal.addEventListener('click', (e) => { if (e.target === rpModal) _hideResetPwModal(); });
-
+  // Users table search & filters
+  const usersSearchInput = document.getElementById('users-search-input');
+  const usersRoleFilter = document.getElementById('users-role-filter');
+  const usersStatusFilter = document.getElementById('users-status-filter');
+  if (usersSearchInput) {
+    usersSearchInput.addEventListener('input', renderUsersTable);
+  }
+  if (usersRoleFilter) {
+    usersRoleFilter.addEventListener('change', renderUsersTable);
+  }
+  if (usersStatusFilter) {
+    usersStatusFilter.addEventListener('change', renderUsersTable);
+  }
 }
+
+// Expose functions globally on window
+window._canDo = _canDo;
+window.loadUserInfo = loadUserInfo;
+window.loadUsers = loadUsers;
+window.renderUsersTable = renderUsersTable;
+window.openCreateUserModal = openCreateUserModal;
+window.openEditUserModal = openEditUserModal;
+window.saveUser = saveUser;
+window.deleteUser = deleteUser;
+window.unlockUser = unlockUser;
+window.openResetPasswordModal = openResetPasswordModal;
+window.saveResetPassword = saveResetPassword;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   attachEventListeners();
-  loadUserInfo();
+  loadUserInfo().then(() => {
+    if (document.getElementById('users-table-body')) {
+      loadUsers();
+    }
+  });
 });

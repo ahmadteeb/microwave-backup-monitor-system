@@ -69,6 +69,9 @@ def create_role():
 @require_permission('users.manage_permissions')
 def update_role(name):
     role = Role.query.filter_by(name=name).first_or_404()
+    if role.is_system:
+        return jsonify({'error': 'Cannot modify system default roles'}), 403
+
     data = request.get_json() or {}
 
     changes = {}
@@ -124,7 +127,7 @@ def get_role_permissions(name):
     for key in all_keys:
         result[key] = perm_dict.get(key, False)
 
-    return jsonify({'permissions': result}), 200
+    return jsonify({'permissions': result, 'is_system': role.is_system}), 200
 
 
 @roles_bp.route('/<string:name>/permissions', methods=['PUT'])
@@ -132,6 +135,9 @@ def get_role_permissions(name):
 @require_permission('users.manage_permissions')
 def update_role_permissions(name):
     role = Role.query.filter_by(name=name).first_or_404()
+    if role.is_system:
+        return jsonify({'error': 'Cannot modify permissions for system default roles'}), 403
+
     data = request.get_json() or {}
     overrides = data.get('permissions', {})
     

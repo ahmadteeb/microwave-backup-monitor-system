@@ -1,30 +1,47 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="page-header">
-  <div>
-    <h2>User Management</h2>
-    <p>Manage users, roles, and permission overrides for MW Link Monitor.</p>
+<div class="dashboard-layout">
+  <div class="table-container">
+    <div class="table-header">
+      <div class="table-title">
+        USER MANAGEMENT <span class="table-count-badge" id="users-count-badge">0 TOTAL</span>
+      </div>
+      <div class="table-actions">
+        <div class="table-filters">
+          <input type="text" id="users-search-input" class="sidebar-search" placeholder="SEARCH USERS..." style="font-family: var(--font-body), 'Font Awesome 6 Free'; font-weight: 500; width: 260px;">
+          <select id="users-role-filter" class="filter-select">
+            <option value="ALL">All Roles</option>
+          </select>
+          <select id="users-status-filter" class="filter-select">
+            <option value="ALL">All Statuses</option>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+            <option value="Locked">Locked</option>
+          </select>
+        </div>
+        <div class="table-action-buttons">
+          <button class="btn-primary" id="btn-add-user"><i class="fa-solid fa-plus"></i> ADD USER</button>
+        </div>
+      </div>
+    </div>
+    <div class="table-scroll-wrapper" style="max-height: calc(100vh - 240px); overflow-y: auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>NAME</th>
+            <th>USERNAME</th>
+            <th>EMAIL</th>
+            <th>ROLE</th>
+            <th>STATUS</th>
+            <th>LAST LOGIN</th>
+            <th style="text-align: right;">ACTIONS</th>
+          </tr>
+        </thead>
+        <tbody id="users-table-body"></tbody>
+      </table>
+    </div>
   </div>
-  <div class="page-actions">
-    <button class="btn-primary" id="btn-add-user"><i class="fa-solid fa-plus"></i> ADD USER</button>
-  </div>
-</div>
-<div class="table-container">
-  <table>
-    <thead>
-      <tr>
-        <th>NAME</th>
-        <th>USERNAME</th>
-        <th>EMAIL</th>
-        <th>ROLE</th>
-        <th>STATUS</th>
-        <th>LAST LOGIN</th>
-        <th style="text-align: right;">ACTIONS</th>
-      </tr>
-    </thead>
-    <tbody id="users-table-body"></tbody>
-  </table>
 </div>
 {% endblock %}
 
@@ -64,8 +81,9 @@
         <select id="user-modal-role" class="form-control"></select>
       </div>
       <div class="form-group" id="user-modal-password-group">
-        <label class="form-label">Password</label>
-        <input type="password" id="user-modal-password" class="form-control" autocomplete="new-password">
+        <label class="form-label" id="user-modal-password-label">Password</label>
+        <input type="password" id="user-modal-password" class="form-control" autocomplete="new-password" placeholder="Min 8 characters">
+        <div class="form-helper" id="user-modal-password-helper">Default: ChangeMe123! if blank</div>
       </div>
       <div class="form-group">
         <label class="toggle-switch">
@@ -103,14 +121,14 @@
     </div>
     <div class="modal-body">
       <input type="hidden" id="reset-pw-user-id">
-      <p class="text-secondary">Reset password for <strong id="reset-pw-username"></strong>.</p>
+      <p class="text-secondary" style="margin-bottom: 16px;">Reset password for <strong id="reset-pw-username" class="text-teal"></strong>.</p>
       <div class="form-group full">
         <label class="form-label">New Password</label>
-        <input id="reset-pw-new" class="form-control" type="password">
+        <input id="reset-pw-new" class="form-control" type="password" placeholder="At least 8 characters" autocomplete="new-password">
       </div>
       <div class="form-group full">
         <label class="form-label">Confirm Password</label>
-        <input id="reset-pw-confirm" class="form-control" type="password">
+        <input id="reset-pw-confirm" class="form-control" type="password" placeholder="Confirm new password" autocomplete="new-password">
       </div>
       <div class="form-group">
         <label class="toggle-switch">
@@ -119,7 +137,7 @@
           Force password change on next login
         </label>
       </div>
-      <div id="reset-pw-error" class="auth-error hidden">
+      <div id="reset-pw-error" class="auth-error hidden" style="grid-column: span 2;">
         <i class="fa-solid fa-triangle-exclamation"></i>
         <span id="reset-pw-error-text"></span>
       </div>
@@ -127,7 +145,7 @@
     <div class="modal-footer">
       <div class="modal-actions">
         <button class="btn-ghost" id="btn-cancel-reset-pw">CANCEL</button>
-        <button class="btn-primary" id="btn-save-reset-pw">RESET PASSWORD</button>
+        <button class="btn-primary" id="btn-save-reset-pw"><i class="fa-solid fa-key"></i> RESET PASSWORD</button>
       </div>
     </div>
   </div>
